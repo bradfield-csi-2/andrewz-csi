@@ -3,12 +3,10 @@ package main
 import (
 	"fmt"
 	"golang.org/x/net/html"
-	//"io/fs"
 	"log"
 	"net/http"
 	"os"
 	"path"
-	//	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -24,7 +22,6 @@ type mirrorJob struct {
 	HttpsLink, Filepath string
 }
 
-//var createdFiles[string]bool
 var seenRenderLinks map[string]bool
 var baseURL string
 var baseFilePath string
@@ -39,11 +36,9 @@ var mirrorJobChan chan mirrorJob
 var rootWG sync.WaitGroup
 var fileTokens chan struct{}
 var webTokens chan struct{}
-var linkWorkerTokens chan struct{}
 var procLinkWorkers chan struct{}
 var mJobQueMutex sync.Mutex
 var doneMJobChan chan struct{}
-
 
 func main() {
 
@@ -55,14 +50,12 @@ func main() {
 	defer file.Close()
 	log.SetOutput(file)
 
-
 	start := time.Now()
 
 	seenRenderLinks = make(map[string]bool)
 	linkToMirrorURLMap = make(map[string]string)
 	fileTokens = make(chan struct{}, 20)
 	webTokens = make(chan struct{}, 20)
-	//linkWorkerTokens = make(chan struct{}, 11)
 	procLinkWorkers = make(chan struct{}, 10)
 	linkURLMutex = sync.Mutex{}
 	renderLinkMutex = sync.Mutex{}
@@ -76,7 +69,6 @@ func main() {
 		fmt.Printf("pwd: %s\n", dir)
 	}
 	seenRenderLinks[baseURL] = true
-
 
 	mirrorJobQue = append(mirrorJobQue, mirrorJob{HttpsLink: baseURL, Filepath: baseFilePath + "/index.html"})
 	mirrorJobChan = make(chan mirrorJob)
@@ -98,7 +90,7 @@ func main() {
 
 func runMJobWorker() {
 	for {
-		log.Println("SELECT done or Proc Link WOrker")
+		//log.Println("SELECT done or Proc Link WOrker")
 		select {
 		case <-doneMJobChan:
 			goto stopRunning
@@ -106,12 +98,12 @@ func runMJobWorker() {
 			mJobQueMutex.Lock()
 			lastIdx := len(mirrorJobQue) - 1
 			if lastIdx < 0 {
-				log.Println("No Jobs")
+				//log.Println("No Jobs")
 				mJobQueMutex.Unlock()
-				<- procLinkWorkers
+				<-procLinkWorkers
 				time.Sleep(100 * time.Millisecond)
 			} else {
-				log.Println("Process MJob")
+				//log.Println("Process MJob")
 				mJob := mirrorJobQue[lastIdx]
 				mirrorJobQue = mirrorJobQue[:lastIdx]
 				mJobQueMutex.Unlock()
@@ -119,20 +111,18 @@ func runMJobWorker() {
 				go processMJob(mJob)
 			}
 		}
-		log.Println("NEXT SELECT done or Proc Link WOrker")
-		//procLinkWorkers <- struct{}{}
-		//go processMJob(mJob)
+		//log.Println("NEXT SELECT done or Proc Link WOrker")
 	}
-	stopRunning:
+stopRunning:
 }
 
 func runMJobQueWorker() {
 	for mJob := range mirrorJobChan {
-		log.Println("Queue job")
+		//log.Println("Queue job")
 		mJobQueMutex.Lock()
 		mirrorJobQue = append(mirrorJobQue, mJob)
 		mJobQueMutex.Unlock()
-		log.Println("FINISH Queue job")
+		//log.Println("FINISH Queue job")
 	}
 }
 
@@ -140,13 +130,9 @@ func processMJob(mJob mirrorJob) {
 	httpsLink, filepath := mJob.HttpsLink, mJob.Filepath
 
 	fmt.Printf("START Processing job https: %s || filename: %s \n", httpsLink, filepath)
-	//jobWG := &sync.WaitGroup{}
 
 	doc := getAndParseHTML(httpsLink)
-	//jobWG.Add(1)
-	updateLinks(doc, httpsLink)//, jobWG)
-
-	//jobWG.Wait()
+	updateLinks(doc, httpsLink)
 
 	makeMirrorFileDirectories(filepath)
 
@@ -190,16 +176,12 @@ func updateLinks(n *html.Node, currentPageURL string) { //, jobWG *sync.WaitGrou
 	}
 
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		//jobWG.Add(1)
-		updateLinks(c, currentPageURL) //, jobWG)
+		updateLinks(c, currentPageURL)
 	}
 
-	//<-linkWorkerTokens //relase token
-	//jobWG.Done()
 }
 
 func getHTTPSURLLink(originalLink, currentPageURL string) (httpsURLLink string, shouldReplaceLink, isRelative bool) {
-	//httpsURLLink := getHTTPSURLLink(originalLink)
 	isRelative = false
 
 	switch {
@@ -218,23 +200,20 @@ func getHTTPSURLLink(originalLink, currentPageURL string) (httpsURLLink string, 
 		shouldReplaceLink = true
 		isRelative = true
 		httpsURLLink = currentPageURL
-		httpsURLLink = strings.TrimRight(currentPageURL,"/") + "/" + strings.TrimLeft(originalLink, "/")
+		httpsURLLink = strings.TrimRight(currentPageURL, "/") + "/" + strings.TrimLeft(originalLink, "/")
 	}
 	return
 }
 
 func constructMirrorLink(httpsURLLink string) (mirrorLink string) {
-	//issue here? needs to allow other type?
 	if ext := path.Ext(httpsURLLink); ext != "" && !strings.Contains(ext, htmlExt) {
 		return httpsURLLink
 	}
-	log.Println("Acuire web token")
+	//log.Println("Acuire web token")
 	webTokens <- struct{}{} //acquire a token
 	resp, err := http.Get(httpsURLLink)
 	<-webTokens //release token
-	//defer resp.Body.Close()  Don't need this because we're not opening and reading??
 	if err != nil {
-		//TODO: allow error - use bad url and continue ??
 		log.Println(httpsURLLink)
 		log.Printf("http.Get => %v", err.Error())
 		mirrorLink = httpsURLLink
@@ -265,7 +244,6 @@ func constructMirrorLink(httpsURLLink string) (mirrorLink string) {
 			httpsURLLink = httpsURLLink[:idx]
 		}
 
-
 		mirrorFpath = strings.TrimRight(mirrorFpath, "/") + "/index.html"
 
 		httpsURLLink = strings.TrimRight(httpsURLLink, "/")
@@ -274,7 +252,6 @@ func constructMirrorLink(httpsURLLink string) (mirrorLink string) {
 				fmt.Println("BAD!!")
 			}
 			if success := protectedSeenRenderLinksWrite(httpsURLLink); success {
-				//rootWG.Add(1)
 				mirrorJobChan <- mirrorJob{HttpsLink: httpsURLLink, Filepath: mirrorFpath}
 			} else {
 				log.Printf("Write didn't succeeed httpsURLLink: %s ;  skip mapping and channel \n", httpsURLLink)
@@ -296,13 +273,12 @@ func constructMirrorLink(httpsURLLink string) (mirrorLink string) {
 func getMirrorLink(link, currentPageURL string) (mirrorLink string, shouldReplaceLink bool) {
 	var ok bool
 	if mirrorLink, ok = protectedURLMapRead(link); ok {
-		//shouldReplaceLink = true
 		return mirrorLink, ok
 	}
 
 	var httpsURLLink string
 	var isRelative bool
-	if httpsURLLink, shouldReplaceLink, isRelative  = getHTTPSURLLink(link, currentPageURL); !shouldReplaceLink {
+	if httpsURLLink, shouldReplaceLink, isRelative = getHTTPSURLLink(link, currentPageURL); !shouldReplaceLink {
 		return
 	}
 
@@ -360,7 +336,6 @@ func protectedURLMapRead(link string) (url string, ok bool) {
 func protectedURLMapWrite(link, url string) (writeSuccess bool) {
 	log.Println("lock link URL Map")
 	linkURLMutex.Lock()
-	//defer mutex.Unlock()
 	if _, ok := linkToMirrorURLMap[link]; ok {
 		writeSuccess = false
 	} else {
@@ -386,7 +361,7 @@ func verifyLinkMap(link, altURL string) bool {
 }
 
 func protectedSeenRenderLinksRead(link string) (seen, ok bool) {
-	log.Println("lock render Link Map")
+	//log.Println("lock render Link Map")
 	renderLinkMutex.Lock()
 	seen, ok = seenRenderLinks[link]
 	renderLinkMutex.Unlock()
@@ -394,7 +369,7 @@ func protectedSeenRenderLinksRead(link string) (seen, ok bool) {
 }
 
 func protectedSeenRenderLinksWrite(link string) (writeSuccess bool) {
-	log.Println("lock render Link Map")
+	//log.Println("lock render Link Map")
 	renderLinkMutex.Lock()
 	if seen, ok := seenRenderLinks[link]; seen || ok {
 		writeSuccess = false
