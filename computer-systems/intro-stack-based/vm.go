@@ -65,8 +65,8 @@ func compute(memory []byte) {
 				os.Exit(1)
 			}
 			memory[arg] = stack[lastIdx]
-			//stack = stack[:lastIdx]
-			//lastIdx--
+			stack = stack[:lastIdx]
+			lastIdx--
 		case Add:
 			if lastIdx < 1 {
 				fmt.Println("Add requires at least two items on the stack")

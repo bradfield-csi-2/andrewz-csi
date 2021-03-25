@@ -111,20 +111,18 @@ halt`,
 		name: "Sum to n",
 		asm: `
 pushaddr 1
-store 3
-beqz 18
+pushaddr 1
+beqz 15
 pop
 pushi 1
 pushaddr 1
 sub
 store 1
-pushaddr 3
+pushaddr 1
 add
-store 3
-pop
 pushaddr 1
 jump 12
-pushaddr 3
+pop
 store 0
 halt`,
 		cases: []vmCase{
