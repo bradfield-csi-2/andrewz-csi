@@ -26,7 +26,7 @@ halt`,
 	{
 		name: "LoadStore",
 		asm: `
-pushaddr 1
+push 1
 store 0
 halt`,
 		cases: []vmCase{
@@ -38,8 +38,8 @@ halt`,
 	{
 		name: "Add",
 		asm: `
-pushaddr 1
-pushaddr 2
+push 1
+push 2
 add
 store 0
 halt`,
@@ -52,8 +52,8 @@ halt`,
 	{
 		name: "Subtract",
 		asm: `
-pushaddr 2
-pushaddr 1
+push 2
+push 1
 sub
 store 0
 halt`,
@@ -69,7 +69,7 @@ var stretchGoalTests = []vmTest{
 	{
 		name: "Jump",
 		asm: `
-pushaddr 1
+push 1
 jump 14
 store 0
 halt`,
@@ -79,8 +79,8 @@ halt`,
 	{
 		name: "Beqz",
 		asm: `
-pushaddr 1
-pushaddr 2
+push 1
+push 2
 beqz 3
 pop
 store 0
@@ -94,7 +94,7 @@ halt`,
 	{
 		name: "Addi",
 		asm: `
-pushaddr 1
+push 1
 pushi 3
 pushi 5
 add
@@ -110,17 +110,17 @@ halt`,
 	{
 		name: "Sum to n",
 		asm: `
-pushaddr 1
-pushaddr 1
+push 1
+push 1
 beqz 15
 pop
 pushi 1
-pushaddr 1
+push 1
 sub
 store 1
-pushaddr 1
+push 1
 add
-pushaddr 1
+push 1
 jump 12
 pop
 store 0
@@ -198,7 +198,7 @@ func assemble(asm string) []byte {
 	for _, line := range strings.Split(asm, "\n") {
 		parts := strings.Split(strings.TrimSpace(line), " ")
 		switch parts[0] {
-		case "pushaddr":
+		case "push":
 			mc = append(mc, []byte{0x01, imm(parts[1])}...)
 		case "store":
 			mc = append(mc, []byte{0x02, imm(parts[1])}...)

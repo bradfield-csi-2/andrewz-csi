@@ -24,9 +24,9 @@ const (
 
 //Stack Based
 const (
-	Pushaddr = 0x01
-	Pushi    = 0x05
-	Pop      = 0x06
+	Push  = 0x01
+	Pushi = 0x05
+	Pop   = 0x06
 )
 
 const (
@@ -56,7 +56,7 @@ func compute(memory []byte) {
 		op, arg := memory[pc], memory[pc+1]
 		// decode and execute
 		switch op {
-		case Pushaddr:
+		case Push:
 			stack = append(stack, memory[arg])
 			lastIdx++
 		case Store:
