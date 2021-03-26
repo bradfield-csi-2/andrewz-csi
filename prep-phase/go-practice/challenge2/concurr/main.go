@@ -54,13 +54,19 @@ func main() {
 
 	seenRenderLinks = make(map[string]bool)
 	linkToMirrorURLMap = make(map[string]string)
+
 	fileTokens = make(chan struct{}, 20)
 	webTokens = make(chan struct{}, 20)
 	procLinkWorkers = make(chan struct{}, 10)
+
 	linkURLMutex = sync.Mutex{}
 	renderLinkMutex = sync.Mutex{}
 	mJobQueMutex = sync.Mutex{}
-	baseURL = "https://golang.org"
+
+	baseURL = os.Args[1] //"https://golang.org"
+
+	validateEntryURL(baseURL)
+
 	dir, err := os.Getwd()
 	if err != nil {
 		log.Fatal("Getwd failed\n")
@@ -86,6 +92,17 @@ func main() {
 	elapsed := t.Sub(start)
 
 	fmt.Printf("Finished!! --  %v \n", elapsed)
+}
+
+func validateEntryURL(entryURL string) {
+	resp, err := http.Get(entryURL)
+	if err != nil {
+		log.Fatalf("Argument URL: %s failed get: %v\n", entryURL, err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		log.Fatalf("Entry URL: %s : Request did not return with status OK", entryURL)
+	}
 }
 
 func runMJobWorker() {
@@ -206,22 +223,27 @@ func getHTTPSURLLink(originalLink, currentPageURL string) (httpsURLLink string, 
 }
 
 func constructMirrorLink(httpsURLLink string) (mirrorLink string) {
+
 	if ext := path.Ext(httpsURLLink); ext != "" && !strings.Contains(ext, htmlExt) {
 		return httpsURLLink
 	}
+
 	//log.Println("Acuire web token")
 	webTokens <- struct{}{} //acquire a token
 	resp, err := http.Get(httpsURLLink)
 	<-webTokens //release token
+
 	if err != nil {
 		log.Println(httpsURLLink)
 		log.Printf("http.Get => %v", err.Error())
 		mirrorLink = httpsURLLink
 		return
 	}
+
 	var mirrorFpath string
 	finalURL := resp.Request.URL.String()
 	log.Printf("FINAL URL: %s \n", finalURL)
+
 	if strings.HasPrefix(strings.ToLower(finalURL), baseURL) {
 		if !strings.HasPrefix(finalURL, baseURL) {
 			log.Fatalf("Issue replacing url: %s using baseURL: %s || capitalization issue?", finalURL, baseURL)
@@ -231,37 +253,44 @@ func constructMirrorLink(httpsURLLink string) (mirrorLink string) {
 
 		hasJumpTag := false
 		var jumpTag string
+
 		if strings.Contains(mirrorFpath, "#") {
 			hasJumpTag = true
+
 			if strings.Count(mirrorFpath, "#") > 1 {
 				log.Fatalf("Multiple jumptags in finalURL: %s \n", finalURL)
 			}
+
 			idx := strings.Index(mirrorFpath, "#")
 			jumpTag = mirrorFpath[idx:]
 			mirrorFpath = mirrorFpath[:idx]
-
-			idx = strings.Index(httpsURLLink, "#")
-			httpsURLLink = httpsURLLink[:idx]
+			idx = strings.Index(finalURL, "#")
+			finalURL = finalURL[:idx]
 		}
 
 		mirrorFpath = strings.TrimRight(mirrorFpath, "/") + "/index.html"
 
-		httpsURLLink = strings.TrimRight(httpsURLLink, "/")
-		if seen, ok := protectedSeenRenderLinksRead(httpsURLLink); !ok || !seen {
-			if strings.HasPrefix(httpsURLLink, "#") {
+		finalURL = strings.TrimRight(finalURL, "/")
+		if seen, ok := protectedSeenRenderLinksRead(finalURL); !ok || !seen {
+
+			if strings.Contains(finalURL, "#") {
 				fmt.Println("BAD!!")
 			}
-			if success := protectedSeenRenderLinksWrite(httpsURLLink); success {
-				mirrorJobChan <- mirrorJob{HttpsLink: httpsURLLink, Filepath: mirrorFpath}
+
+			if success := protectedSeenRenderLinksWrite(finalURL); success {
+				mirrorJobChan <- mirrorJob{HttpsLink: finalURL, Filepath: mirrorFpath}
 			} else {
-				log.Printf("Write didn't succeeed httpsURLLink: %s ;  skip mapping and channel \n", httpsURLLink)
+				log.Printf("Write didn't succeeed finalURL: %s ;  skip mapping and channel \n", finalURL)
 			}
 		}
+
 		if hasJumpTag {
 			mirrorFpath += jumpTag
 		}
+
 		mirrorLink = fileProtocolPrefix + mirrorFpath
 		log.Printf("FINAL Mirror Link: %s \n", mirrorLink)
+
 	} else {
 		log.Printf("HTTPS URL Link when final URL not base ?: %s \n", httpsURLLink)
 		mirrorLink = httpsURLLink
@@ -271,6 +300,7 @@ func constructMirrorLink(httpsURLLink string) (mirrorLink string) {
 }
 
 func getMirrorLink(link, currentPageURL string) (mirrorLink string, shouldReplaceLink bool) {
+
 	var ok bool
 	if mirrorLink, ok = protectedURLMapRead(link); ok {
 		return mirrorLink, ok
@@ -295,7 +325,8 @@ func getMirrorLink(link, currentPageURL string) (mirrorLink string, shouldReplac
 }
 
 func createLocalMirror(doc *html.Node, filename string) {
-	log.Println("Acquire file token")
+
+	//log.Println("Acquire file token")
 	fileTokens <- struct{}{} //acquire a token
 	f, err := os.Create(filename)
 
@@ -303,11 +334,13 @@ func createLocalMirror(doc *html.Node, filename string) {
 		log.Println("On Create")
 		log.Fatal(err)
 	}
+
 	err = html.Render(f, doc)
 	if err != nil {
 		log.Println("On Render")
 		log.Fatal(err)
 	}
+
 	if closeErr := f.Close(); closeErr != nil {
 		log.Println("On Close")
 		log.Fatal(closeErr) //err = closeErr
@@ -316,17 +349,20 @@ func createLocalMirror(doc *html.Node, filename string) {
 }
 
 func makeMirrorFileDirectories(filename string) {
-	log.Println("Acquire file token")
+
+	//log.Println("Acquire file token")
 	fileTokens <- struct{}{} //acquire a token
 	err := os.MkdirAll(path.Dir(filename), os.ModePerm.Perm())
+
 	if err != nil {
 		log.Fatalf("Something wrong with make mirror file directories: %s", filename)
 	}
+
 	<-fileTokens //release token
 }
 
 func protectedURLMapRead(link string) (url string, ok bool) {
-	log.Println("lock link URL Map")
+	//log.Println("lock link URL Map")
 	linkURLMutex.Lock()
 	url, ok = linkToMirrorURLMap[link]
 	linkURLMutex.Unlock()
@@ -334,7 +370,8 @@ func protectedURLMapRead(link string) (url string, ok bool) {
 }
 
 func protectedURLMapWrite(link, url string) (writeSuccess bool) {
-	log.Println("lock link URL Map")
+
+	//log.Println("lock link URL Map")
 	linkURLMutex.Lock()
 	if _, ok := linkToMirrorURLMap[link]; ok {
 		writeSuccess = false
@@ -347,16 +384,19 @@ func protectedURLMapWrite(link, url string) (writeSuccess bool) {
 }
 
 func verifyLinkMap(link, altURL string) bool {
+
 	var mapURL string
 	if mURL, ok := protectedURLMapRead(link); ok && mURL == altURL {
 		mapURL = mURL
 		return true
 	}
+
 	if len(mapURL) == 0 {
 		fmt.Printf("VERIFY NOT OK!!! for link: %s -- altURL: %s -- mapURL: NONE \n", link, altURL)
 	} else {
 		fmt.Printf("VERIFY NOT OK!!! for link: %s -- altURL: %s -- mapURL: %s \n", link, altURL, mapURL)
 	}
+
 	return false
 }
 
@@ -371,12 +411,14 @@ func protectedSeenRenderLinksRead(link string) (seen, ok bool) {
 func protectedSeenRenderLinksWrite(link string) (writeSuccess bool) {
 	//log.Println("lock render Link Map")
 	renderLinkMutex.Lock()
+
 	if seen, ok := seenRenderLinks[link]; seen || ok {
 		writeSuccess = false
 	} else {
 		seenRenderLinks[link] = true
 		writeSuccess = true
 	}
+
 	renderLinkMutex.Unlock()
 	return
 }
