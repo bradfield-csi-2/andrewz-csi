@@ -57,24 +57,24 @@ void test_cone_volume_1234_5678(void) {
 
 int main(void) {
     UNITY_BEGIN();
-    /*
+    
     RUN_TEST(test_fib_0);
     RUN_TEST(test_fib_1);
     RUN_TEST(test_fib_2);
     RUN_TEST(test_fib_3);
     RUN_TEST(test_fib_10);
     RUN_TEST(test_fib_12);
-    */
+    
    
     RUN_TEST(test_index_row);
     RUN_TEST(test_index_col);
     RUN_TEST(test_index_rect);
     RUN_TEST(test_transpose);
-    /*
+    
     RUN_TEST(test_cone_volume_0_0);
     RUN_TEST(test_cone_volume_1_2);
     RUN_TEST(test_cone_volume_55_55);
     RUN_TEST(test_cone_volume_1234_5678);
-   */
+   
     return UNITY_END();
 }
