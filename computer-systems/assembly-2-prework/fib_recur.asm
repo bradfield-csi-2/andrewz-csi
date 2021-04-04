@@ -7,7 +7,7 @@ fib_recur:
 	jle .end
 	push rbx
 	mov ebx, edi
-	lea edi, [rbx-1]
+	lea edi, [ebx-1]
 	call fib_recur
 	lea edi, [ebx-2]
 	mov	ebx, eax
