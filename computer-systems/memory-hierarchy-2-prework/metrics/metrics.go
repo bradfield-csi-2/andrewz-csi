@@ -11,8 +11,8 @@ import (
 
 type UserId int
 //type UserMap map[UserId]*User
-type PaymentsSlice []int
-type AgesSlice []int8
+type PaymentsSlice []uint32
+type AgesSlice []uint8
 type PaymentsIndices []int
 
 type Address struct {
@@ -65,7 +65,7 @@ func AverageAge(users *UsersData) float64 {
 	stop3 := stop1 * 3
 
 
-	accChan := make(chan int64, 4)
+	accChan := make(chan uint64, 4)
 	defer close(accChan)
 
 	go procAccAge(0, stop1, ages, accChan)
@@ -73,7 +73,7 @@ func AverageAge(users *UsersData) float64 {
 	go procAccAge(stop2, stop3, ages, accChan)
 	go procAccAge(stop3, stop, ages, accChan)
 
-	var accSum int64 = 0
+	var accSum uint64 = 0
 	count := 0
 	for acc := range accChan {
 		accSum += acc
@@ -94,7 +94,7 @@ func AveragePaymentAmount(users *UsersData) float64 {
 	stop3 := stop1 * 3
 
 
-	accChan := make(chan int64, 4)
+	accChan := make(chan uint64, 4)
 	defer close(accChan)
 
 	go procAccPayMean(0, stop1, payments, accChan)
@@ -102,7 +102,7 @@ func AveragePaymentAmount(users *UsersData) float64 {
 	go procAccPayMean(stop2, stop3, payments, accChan)
 	go procAccPayMean(stop3, stop, payments, accChan)
 	
-	var accSum int64 = 0
+	var accSum uint64 = 0
 	count := 0
 	for acc := range accChan {
 		accSum += acc
@@ -116,49 +116,49 @@ func AveragePaymentAmount(users *UsersData) float64 {
 }
 
 
-func procAccAge (i, stop int, ages AgesSlice, accChan chan<- int64) {
+func procAccAge (i, stop int, ages AgesSlice, accChan chan<- uint64) {
 	stop -= 3
-	var acc0, acc1, acc2, acc3 int64 = 0,0,0,0
+	var acc0, acc1, acc2, acc3 uint64 = 0,0,0,0
 	for ; i < stop; i += 4  {
-		acc0 += int64(ages[i])
-		acc1 += int64(ages[i+1])
-		acc2 += int64(ages[i+2])
-		acc3 += int64(ages[i+3])
+		acc0 += uint64(ages[i])
+		acc1 += uint64(ages[i+1])
+		acc2 += uint64(ages[i+2])
+		acc3 += uint64(ages[i+3])
 	}
 	ageLen := stop + 3
 	for ;i < ageLen; i++ {
-		acc0 += int64(ages[i])	
+		acc0 += uint64(ages[i])
 	}
 	accChan <- (acc0 + acc1) + (acc2 + acc3)
 }
 
 
 
-func procAccPayMean (i, stop int, payments PaymentsSlice, accChan chan<- int64) {
+func procAccPayMean (i, stop int, payments PaymentsSlice, accChan chan<- uint64) {
 	stop -= 3
-	var acc0, acc1, acc2, acc3 int64 = 0,0,0,0
+	var acc0, acc1, acc2, acc3 uint64 = 0,0,0,0
 	for ; i < stop; i += 4  {
-		acc0 += int64(payments[i])
-		acc1 += int64(payments[i+1])
-		acc2 += int64(payments[i+2])
-		acc3 += int64(payments[i+3])
+		acc0 += uint64(payments[i])
+		acc1 += uint64(payments[i+1])
+		acc2 += uint64(payments[i+2])
+		acc3 += uint64(payments[i+3])
 	}
 	payLen := stop + 3
 	for ;i < payLen; i++ {
-		acc0 += int64(payments[i])	
+		acc0 += uint64(payments[i])
 	}
 	accChan <- (acc0 + acc1) + (acc2 + acc3)
 }
 
-func procAccPayStdDev (i, stop int, payments PaymentsSlice, accSqChan chan<- float64, accSumChan chan <-int64) {
+func procAccPayStdDev (i, stop int, payments PaymentsSlice, accSqChan chan<- float64, accSumChan chan <-uint64) {
 	stop -= 3
 	var acc float64 = 0.0
-  var sum0, sum1, sum2, sum3 int64 = 0,0,0,0
+  var sum0, sum1, sum2, sum3 uint64 = 0,0,0,0
 	for ; i < stop; i += 4  {
- 		pay0 := int64(payments[i])
-		pay1 := int64(payments[i+1])
-		pay2 := int64(payments[i+2])
-		pay3 := int64(payments[i+3])
+ 		pay0 := uint64(payments[i])
+		pay1 := uint64(payments[i+1])
+		pay2 := uint64(payments[i+2])
+		pay3 := uint64(payments[i+3])
    
 		sq0 := pay0 * pay0
     sum0 += pay0
@@ -172,9 +172,9 @@ func procAccPayStdDev (i, stop int, payments PaymentsSlice, accSqChan chan<- flo
 		acc += float64(sqSum) / 10000.0
 	}
 	payLen := stop + 3
-	var sqSum int64 = 0
+	var sqSum uint64 = 0
 	for ;i < payLen; i++ {
-    pay0 :=  int64(payments[i])	
+    pay0 :=  uint64(payments[i])
 		sqSum += pay0 * pay0 
     sum0 += pay0
   }
@@ -198,7 +198,7 @@ func StdDevPaymentAmount(users *UsersData) float64 {
 
 
 	accSqChan := make(chan float64, 4)
-  accSumChan := make(chan int64, 4)
+  accSumChan := make(chan uint64, 4)
 	//defer close(accSqChan)
   //defer close(accSumChan)
 
@@ -217,7 +217,7 @@ func StdDevPaymentAmount(users *UsersData) float64 {
 		}
 	}
 
-  var accMeSum int64 = 0
+  var accMeSum uint64 = 0
 
   count = 0
   for accMe := range accSumChan {
@@ -261,7 +261,7 @@ func LoadData() *UsersData {
 		zip, _ := strconv.Atoi(line[3])
 		users.ids = append(users.ids, id)
 		users.names = append(users.names, name)
-		users.ages = append(users.ages, int8(age))
+		users.ages = append(users.ages, uint8(age))
 		users.addresses = append(users.addresses, Address{address,zip})
 		users.payments = append(users.payments, make(PaymentsIndices,0))
 	}
@@ -283,7 +283,7 @@ func LoadData() *UsersData {
 		paymentCents, _ := strconv.Atoi(line[0])
 		datetime, _ := time.Parse(time.RFC3339, line[1])
 
-		users.paymentsData.paymentsCents = append(users.paymentsData.paymentsCents, paymentCents)
+		users.paymentsData.paymentsCents = append(users.paymentsData.paymentsCents, uint32(paymentCents))
 		users.paymentsData.dollarAmts  = append(users.paymentsData.dollarAmts, DollarAmount{uint64(paymentCents / 100), uint64(paymentCents % 100)})
 		users.paymentsData.userIds = append(users.paymentsData.userIds, userId)
 		users.paymentsData.times = append(users.paymentsData.times,datetime)
