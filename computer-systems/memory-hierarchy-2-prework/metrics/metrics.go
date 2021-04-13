@@ -150,25 +150,38 @@ func procAccPayMean (i, stop int, payments PaymentsSlice, accChan chan<- int64) 
 	accChan <- (acc0 + acc1) + (acc2 + acc3)
 }
 
-func procAccPayStdDev (i, stop int, payments PaymentsSlice, accChan chan<- float64) {
+func procAccPayStdDev (i, stop int, payments PaymentsSlice, accSqChan chan<- float64, accSumChan chan <-int64) {
 	stop -= 3
 	var acc float64 = 0.0
+  var sum0, sum1, sum2, sum3 int64 = 0,0,0,0
 	for ; i < stop; i += 4  {
-		sq0 := int64(payments[i]) * int64(payments[i])
-		sq1 := int64(payments[i+1]) * int64(payments[i+1])
-		sq2 := int64(payments[i+2]) * int64(payments[i+2])
-		sq3 := int64(payments[i+3]) * int64(payments[i+3])
+ 		pay0 := int64(payments[i])
+		pay1 := int64(payments[i+1])
+		pay2 := int64(payments[i+2])
+		pay3 := int64(payments[i+3])
+   
+		sq0 := pay0 * pay0
+    sum0 += pay0
+		sq1 := pay1 * pay1
+    sum1 += pay1
+		sq2 := pay2 * pay2
+    sum2 += pay2
+		sq3 := pay3 * pay3
+    sum3 += pay3
 		sqSum := (sq0 + sq1)  + (sq2 + sq3)
 		acc += float64(sqSum) / 10000.0
 	}
 	payLen := stop + 3
 	var sqSum int64 = 0
 	for ;i < payLen; i++ {
-		sqSum += int64(payments[i])	* int64(payments[i])
-	}
+    pay0 :=  int64(payments[i])	
+		sqSum += pay0 * pay0 
+    sum0 += pay0
+  }
 
 	acc += float64(sqSum) / 10000.0
-	accChan <- acc
+	accSqChan <- acc
+  accSumChan <- (sum0 + sum1) + (sum2 + sum3)
 }
 
 
@@ -176,7 +189,7 @@ func procAccPayStdDev (i, stop int, payments PaymentsSlice, accChan chan<- float
 func StdDevPaymentAmount(users *UsersData) float64 {
 	payments := users.paymentsData.paymentsCents
 
-	mean := AveragePaymentAmount(users)
+	//mean := AveragePaymentAmount(users)
 	
 	stop := len(payments)
 	stop1 := stop / 4
@@ -184,24 +197,39 @@ func StdDevPaymentAmount(users *UsersData) float64 {
 	stop3 := stop1 * 3
 
 
-	accChan := make(chan float64, 4)
-	defer close(accChan)
+	accSqChan := make(chan float64, 4)
+  accSumChan := make(chan int64, 4)
+	//defer close(accSqChan)
+  //defer close(accSumChan)
 
-	go procAccPayStdDev(0, stop1, payments, accChan)
-	go procAccPayStdDev(stop1, stop2, payments, accChan)
-	go procAccPayStdDev(stop2, stop3, payments, accChan)
-	go procAccPayStdDev(stop3, stop, payments, accChan)
+	go procAccPayStdDev(0, stop1, payments, accSqChan, accSumChan)
+	go procAccPayStdDev(stop1, stop2, payments, accSqChan, accSumChan)
+	go procAccPayStdDev(stop2, stop3, payments, accSqChan, accSumChan)
+	go procAccPayStdDev(stop3, stop, payments, accSqChan, accSumChan)
 
-	var accSum float64 = 0
+	var accSqSum float64 = 0
 	count := 0
-	for acc := range accChan {
-		accSum += acc
+	for accSq := range accSqChan {
+		accSqSum += accSq
 		count += 1
 		if count == 4 {
-			break
+		  close(accSqChan)	
 		}
 	}
-	eSS := accSum / float64(stop)
+
+  var accMeSum int64 = 0
+
+  count = 0
+  for accMe := range accSumChan {
+    accMeSum += accMe
+    count += 1
+    if count == 4 {
+      close(accSumChan)
+    }
+  }
+  
+	eSS := accSqSum / float64(stop)
+  mean := float64(accMeSum) / float64(stop * 100)
 	meanSq := mean * mean
 	return math.Sqrt(eSS - meanSq)
 }
