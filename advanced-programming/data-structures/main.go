@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"unsafe"
+  "reflect"
 )
 
 
@@ -51,6 +52,44 @@ const (
 	// sentinel bucket ID for iterator checks
 	//noCheck = 1<<(8*sys.PtrSize) - 1
 )
+
+type tflag uint8
+
+type nameOff int32
+type typeOff int32
+
+type _type struct {
+	size       uintptr
+	ptrdata    uintptr // size of memory prefix holding all pointers
+	hash       uint32
+	tflag      tflag
+	align      uint8
+	fieldAlign uint8
+	kind       uint8
+	// function for comparing objects of this type
+	// (ptr to object A, ptr to object B) -> ==?
+	equal func(unsafe.Pointer, unsafe.Pointer) bool
+	// gcdata stores the GC type data for the garbage collector.
+	// If the KindGCProg bit is set in kind, gcdata is a GC program.
+	// Otherwise it is a ptrmask bitmap. See mbitmap.go for details.
+	gcdata    *byte
+	str       nameOff
+	ptrToThis typeOff
+}
+
+type maptype struct {
+	typ    _type
+	key    *_type
+	elem   *_type
+	bucket *_type // internal type representing a hash bucket
+	// function for hashing keys (ptr to key, seed) -> hash
+	hasher     func(unsafe.Pointer, uintptr) uintptr
+	keysize    uint8  // size of key slot
+	elemsize   uint8  // size of elem slot
+	bucketsize uint16 // size of bucket
+	flags      uint32
+}
+
 
 // isEmpty reports whether the given tophash array entry represents an empty bucket entry.
 func isEmpty(x uint8) bool {
@@ -156,6 +195,18 @@ func main() {
 	fmt.Printf("one is %v\n", one)
 	fmt.Printf("two is %v\n", two)
 
+  m[30] = 35
+  m[62] = 21
+
+  sk, sv :=  sumMapKV(m)
+
+  fmt.Printf("keysum = %d | valsum = %d \n", sk, sv)
+  ty := reflect.TypeOf(m)
+
+  fmt.Println(ty.String())
+  fmt.Println(unsafe.Sizeof(m))
+
+
 }
 
 func getFloatBin(f float64) uint64 {
@@ -187,5 +238,70 @@ func checkLen(m map[int]int) bool {
 	uLen := **(**int)(unsafe.Pointer(&m))
 	fmt.Printf("mLen = %d\n", mLen)
 	fmt.Printf("uLen = %d\n", uLen)
+  fmt.Printf("%v\n", unsafe.Sizeof(1))
 	return mLen == uLen
 }
+
+
+func sumMapKV(m map[int]int) (sk, sv int) {
+  //bucketsize is 144 data offset = 8, overflow offset = 136
+  //
+  //
+  //get map hmap
+  //get buckets
+  //get count
+  //for earch bucket which is not empty
+  //get the key and value
+  //add to running sum
+  //search all overflow buckets
+  // no overflow if overflow pointer is nil??
+  sk, sv = 0,0
+  hm := **(**hmap)(unsafe.Pointer(&m))
+
+  b := hm.buckets
+  bucket := 0
+  sCnt := 0
+  nbuckets := 1 << hm.B
+  fmt.Println("hm.B")
+  fmt.Println(hm.B)
+next:
+  //
+  if sCnt == hm.count {
+    return
+  }
+  if bucket >= nbuckets {
+    fmt.Println(bucket)
+    fmt.Println(nbuckets)
+    panic("out of bucket bounds")
+  }
+
+
+  bm := *(*bmap)(b)
+
+  karr := *(*[8]int)(unsafe.Pointer(uintptr(b) + unsafe.Sizeof(bm)))
+  earr := (*[8]int)(unsafe.Pointer(uintptr(b) + unsafe.Sizeof(bm) + unsafe.Sizeof(karr)))
+  for i := 0; i < bucketCnt; i++ {
+		//offi := (i + it.offset) & (bucketCnt - 1)
+		if isEmpty(bm.tophash[i])  {
+      continue
+    }
+
+    sk += karr[i]
+    sv += earr[i]
+    sCnt++
+  }
+
+  b = unsafe.Pointer(*(**bmap)(unsafe.Pointer(uintptr(b) + uintptr(144-8))))
+
+  fmt.Println("check nil overflow")
+  if (*bmap)(b) == nil {
+    bucket++
+    b = unsafe.Pointer(uintptr(hm.buckets) + uintptr(bucket) * uintptr(144))
+    fmt.Println("next bucket")
+  }
+
+  goto next
+
+}
+
+
