@@ -1,0 +1,43 @@
+Write up for send on an unbuffered channel and blocking
+
+Check for invalid states and unbuffered conditions
+
+Next check if there is room on in the buffer (0 if unbuffered)
+
+Get the Go Routine getg() (holds pointer to stack?)
+
+acuiresudog() acuires sudog object from a pool
+
+Initialing the sudo g and set the gorouting waiting field to the sudog (why because it points to the go routine? Or is just wants to relate and show that the grouting has something it’s waiting on, also waiting queue??)
+
+
+Enqueue the sudo g on the unbuffered channels sendq field
+
+Send atomic signal that a go park is taking place so restrict channel stacks from growing/moving 
+
+Begin go park:
+
+Acquire the kernel thread (m)
+Get it’s current goroutine (should be the one trying to park)
+Init lock/reason (should be waiting reason)\
+
+Call park_m using mcall
+
+Using mcall - the kernel thread switches to the g0 thread (g0 is the local scheduler given to the thread?)
+
+Then within park_m, 
+
+Change the the send goroutine’s status to waiting
+dropg: remove the association between the go routine and kernel thread (by setting their pointers to nil instead of each other (on m.curg and g.m)
+
+This parks the sending g because it is stranded and not able to execute and will not be in the local or global runq, needs to be added back by the goroutine receiving on that channel 
+
+now g through checks for runnable goroutines
+
+check the local runq, then the global then others?
+
+set it up by setting it to running and putting in on the thread through association
+
+use gogo? to switch to that goroutine and start executing from the indicated pc address 
+
+ 
