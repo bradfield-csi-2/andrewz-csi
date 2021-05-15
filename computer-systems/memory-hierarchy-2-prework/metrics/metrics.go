@@ -1,0 +1,294 @@
+package metrics
+
+import (
+	"encoding/csv"
+	"log"
+	"math"
+	"os"
+	"strconv"
+	"time"
+)
+
+type UserId int
+//type UserMap map[UserId]*User
+type PaymentsSlice []uint32
+type AgesSlice []uint8
+type PaymentsIndices []int
+
+type Address struct {
+	fullAddress string
+	zip         int
+}
+
+type DollarAmount struct {
+	dollars, cents uint64
+}
+
+type Payment struct {
+	amount DollarAmount
+	time   time.Time
+}
+
+type PaymentsData struct {
+	paymentsCents		PaymentsSlice
+	dollarAmts			[]DollarAmount
+	userIds					[]int
+	times						[]time.Time
+}
+
+
+type UsersData struct {
+	ids						[]int
+	names					[]string
+	ages					AgesSlice
+	addresses			[]Address
+	payments			[]PaymentsIndices
+	paymentsData	PaymentsData
+}
+
+/*
+type User struct {
+	id       UserId
+	name     string
+	age      int
+	address  Address
+	payments []Payment
+}
+*/
+
+func AverageAge(users *UsersData) float64 {
+	
+	ages := users.ages
+	stop := len(ages)
+	stop1 := stop / 4
+	stop2 := stop1 * 2
+	stop3 := stop1 * 3
+
+
+	accChan := make(chan uint64, 4)
+	defer close(accChan)
+
+	go procAccAge(0, stop1, ages, accChan)
+	go procAccAge(stop1, stop2, ages, accChan)
+	go procAccAge(stop2, stop3, ages, accChan)
+	go procAccAge(stop3, stop, ages, accChan)
+
+	var accSum uint64 = 0
+	count := 0
+	for acc := range accChan {
+		accSum += acc
+		count += 1
+		if count == 4 {
+			break
+		}
+	}
+	//pcount := float64(stop)
+	return float64(accSum) / float64(stop) //pcount
+}
+
+func AveragePaymentAmount(users *UsersData) float64 {
+	payments := users.paymentsData.paymentsCents
+	stop := len(payments)
+	stop1 := stop / 4
+	stop2 := stop1 * 2
+	stop3 := stop1 * 3
+
+
+	accChan := make(chan uint64, 4)
+	defer close(accChan)
+
+	go procAccPayMean(0, stop1, payments, accChan)
+	go procAccPayMean(stop1, stop2, payments, accChan)
+	go procAccPayMean(stop2, stop3, payments, accChan)
+	go procAccPayMean(stop3, stop, payments, accChan)
+	
+	var accSum uint64 = 0
+	count := 0
+	for acc := range accChan {
+		accSum += acc
+		count += 1
+		if count == 4 {
+			break
+		}
+	}
+	pcount := float64(stop * 100)
+	return float64(accSum) / pcount 
+}
+
+
+func procAccAge (i, stop int, ages AgesSlice, accChan chan<- uint64) {
+	stop -= 3
+	var acc0, acc1, acc2, acc3 uint64 = 0,0,0,0
+	for ; i < stop; i += 4  {
+		acc0 += uint64(ages[i])
+		acc1 += uint64(ages[i+1])
+		acc2 += uint64(ages[i+2])
+		acc3 += uint64(ages[i+3])
+	}
+	ageLen := stop + 3
+	for ;i < ageLen; i++ {
+		acc0 += uint64(ages[i])
+	}
+	accChan <- (acc0 + acc1) + (acc2 + acc3)
+}
+
+
+
+func procAccPayMean (i, stop int, payments PaymentsSlice, accChan chan<- uint64) {
+	stop -= 3
+	var acc0, acc1, acc2, acc3 uint64 = 0,0,0,0
+	for ; i < stop; i += 4  {
+		acc0 += uint64(payments[i])
+		acc1 += uint64(payments[i+1])
+		acc2 += uint64(payments[i+2])
+		acc3 += uint64(payments[i+3])
+	}
+	payLen := stop + 3
+	for ;i < payLen; i++ {
+		acc0 += uint64(payments[i])
+	}
+	accChan <- (acc0 + acc1) + (acc2 + acc3)
+}
+
+func procAccPayStdDev (i, stop int, payments PaymentsSlice, accSqChan chan<- float64, accSumChan chan <-uint64) {
+	stop -= 3
+	var acc float64 = 0.0
+  var sum0, sum1, sum2, sum3 uint64 = 0,0,0,0
+	for ; i < stop; i += 4  {
+ 		pay0 := uint64(payments[i])
+		pay1 := uint64(payments[i+1])
+		pay2 := uint64(payments[i+2])
+		pay3 := uint64(payments[i+3])
+   
+		sq0 := pay0 * pay0
+    sum0 += pay0
+		sq1 := pay1 * pay1
+    sum1 += pay1
+		sq2 := pay2 * pay2
+    sum2 += pay2
+		sq3 := pay3 * pay3
+    sum3 += pay3
+		sqSum := (sq0 + sq1)  + (sq2 + sq3)
+		acc += float64(sqSum) / 10000.0
+	}
+	payLen := stop + 3
+	var sqSum uint64 = 0
+	for ;i < payLen; i++ {
+    pay0 :=  uint64(payments[i])
+		sqSum += pay0 * pay0 
+    sum0 += pay0
+  }
+
+	acc += float64(sqSum) / 10000.0
+	accSqChan <- acc
+  accSumChan <- (sum0 + sum1) + (sum2 + sum3)
+}
+
+
+// Compute the standard deviation of payment amounts
+func StdDevPaymentAmount(users *UsersData) float64 {
+	payments := users.paymentsData.paymentsCents
+
+	//mean := AveragePaymentAmount(users)
+	
+	stop := len(payments)
+	stop1 := stop / 4
+	stop2 := stop1 * 2
+	stop3 := stop1 * 3
+
+
+	accSqChan := make(chan float64, 4)
+  accSumChan := make(chan uint64, 4)
+	//defer close(accSqChan)
+  //defer close(accSumChan)
+
+	go procAccPayStdDev(0, stop1, payments, accSqChan, accSumChan)
+	go procAccPayStdDev(stop1, stop2, payments, accSqChan, accSumChan)
+	go procAccPayStdDev(stop2, stop3, payments, accSqChan, accSumChan)
+	go procAccPayStdDev(stop3, stop, payments, accSqChan, accSumChan)
+
+	var accSqSum float64 = 0
+	count := 0
+	for accSq := range accSqChan {
+		accSqSum += accSq
+		count += 1
+		if count == 4 {
+		  close(accSqChan)	
+		}
+	}
+
+  var accMeSum uint64 = 0
+
+  count = 0
+  for accMe := range accSumChan {
+    accMeSum += accMe
+    count += 1
+    if count == 4 {
+      close(accSumChan)
+    }
+  }
+  
+	eSS := accSqSum / float64(stop)
+  mean := float64(accMeSum) / float64(stop * 100)
+	meanSq := mean * mean
+	return math.Sqrt(eSS - meanSq)
+}
+
+func LoadData() *UsersData {
+	f, err := os.Open("users.csv")
+	if err != nil {
+		log.Fatalln("Unable to read users.csv", err)
+	}
+	reader := csv.NewReader(f)
+	userLines, err := reader.ReadAll()
+	if err != nil {
+		log.Fatalln("Unable to parse users.csv as csv", err)
+	}
+
+	users := new(UsersData)//make(UserMap, len(userLines))
+	users.ids = make([]int,0,1000000)
+	users.names = make([]string,0,1000000)
+	users.ages = make(AgesSlice,0,1000000)
+	users.addresses = make([]Address,0,1000000)
+	users.payments = make([]PaymentsIndices,0,1000000)
+
+
+	for _, line := range userLines {
+		id, _ := strconv.Atoi(line[0])
+		name := line[1]
+		age, _ := strconv.Atoi(line[2])
+		address := line[3]
+		zip, _ := strconv.Atoi(line[3])
+		users.ids = append(users.ids, id)
+		users.names = append(users.names, name)
+		users.ages = append(users.ages, uint8(age))
+		users.addresses = append(users.addresses, Address{address,zip})
+		users.payments = append(users.payments, make(PaymentsIndices,0))
+	}
+
+
+	f, err = os.Open("payments.csv")
+	if err != nil {
+		log.Fatalln("Unable to read payments.csv", err)
+	}
+	reader = csv.NewReader(f)
+	paymentLines, err := reader.ReadAll()
+	if err != nil {
+		log.Fatalln("Unable to parse payments.csv as csv", err)
+	}
+
+
+	for payIdx, line := range paymentLines {
+		userId, _ := strconv.Atoi(line[2])
+		paymentCents, _ := strconv.Atoi(line[0])
+		datetime, _ := time.Parse(time.RFC3339, line[1])
+
+		users.paymentsData.paymentsCents = append(users.paymentsData.paymentsCents, uint32(paymentCents))
+		users.paymentsData.dollarAmts  = append(users.paymentsData.dollarAmts, DollarAmount{uint64(paymentCents / 100), uint64(paymentCents % 100)})
+		users.paymentsData.userIds = append(users.paymentsData.userIds, userId)
+		users.paymentsData.times = append(users.paymentsData.times,datetime)
+		users.payments[userId] = append(users.payments[userId], payIdx)
+	}
+
+	return users
+}
