@@ -1,0 +1,5 @@
+# pack-refs with: peeled fully-peeled sorted 
+4509d05a708ec3676250978a9e2e44f65993648b refs/remotes/origin/bst-example
+f34dff0f41505fea7c05001484662f7fc390809e refs/remotes/origin/circleci
+f924da02e1498ace007c2e3c79b190abd70d5626 refs/remotes/origin/count-words-in-file
+6e4bdfe87047dcb5a449bc4eeaf05edd4a8e7713 refs/remotes/origin/master
