@@ -156,17 +156,22 @@ func fwdReqAndGetResp(reqBuf []byte) []byte{
   }
   fmt.Println("forward request to pyserver")
   respBuf := make([]byte,500)
+  totalResp := make([]byte,0)
   n, _, err := syscall.Recvfrom(servSock, respBuf, 0)
+  for err == nil && n > 0 {
+    totalResp = append(totalResp, respBuf[:n]...)
+    n, _, err = syscall.Recvfrom(servSock, respBuf, 0)
+  }
   if err != nil {
     panic(err)
   }
   fmt.Println("receive response from py server")
-  fmt.Printf("%d bytes: %s \n", n, respBuf[:n])
-  fmt.Printf("FULL: %s \n", respBuf[:200])
+  //fmt.Printf("%d bytes: %s \n", len(totalResp), string(totalResp))
+  //fmt.Printf("FULL: %s \n", respBuf[:200])
   syscall.Close(servSock)
   fmt.Println("closed serv connection")
   //fmt.Println(servFrom)
-  return respBuf[:n]
+  return totalResp //respBuf[:n]
 
 }
 
