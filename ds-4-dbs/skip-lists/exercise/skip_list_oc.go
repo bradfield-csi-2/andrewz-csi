@@ -1,6 +1,5 @@
 package main
 
-//import "math/rand"
 import (
     crypto_rand "crypto/rand"
     "encoding/binary"
