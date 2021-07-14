@@ -72,6 +72,19 @@ func (o *skipListOC) firstGE(key string) (*slNode, []*slNode) {
 	return node, update
 }
 
+func (o *skipListOC) firstGEGet(key string) (*slNode) {
+	//update := make([]*slNode, MaxLevel)
+	node := o.head //.forward[o.level]
+	for i := o.level; i >= 0; i-- {
+		for node.forward[i] != o.tail && node.forward[i].item.Key < key {
+			node = node.forward[i]
+		}
+		//update[i] = node
+	}
+	node = node.forward[0]
+	return node//, update
+}
+
 func (o *skipListOC) Get(key string) (string, bool) {
 	node, _ := o.firstGE(key)
 	if node == o.tail || node.item.Key != key {
