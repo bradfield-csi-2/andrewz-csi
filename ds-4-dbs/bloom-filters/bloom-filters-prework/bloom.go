@@ -2,14 +2,12 @@ package main
 
 import (
 	"encoding/binary"
+  "errors"
 	//	"fmt"
 	//"github.com/spaolacci/murmur3"
 	"hash/fnv"
-  //"leb.io/hashland/jenkins"
+	//"leb.io/hashland/jenkins"
 )
-
-var S int = 2
-var Seeds [9]uint32 = [9]uint32{101,65537,223,263,277,307,433,509,577}
 
 type bloomFilter interface {
 	add(item string)
@@ -22,169 +20,89 @@ type bloomFilter interface {
 	memoryUsage() int
 }
 
-type trivialBloomFilter struct {
-	data []uint64
+type aBloomFilter struct {
+	data    []byte
+	nHashes int
+  buckets int
+	bits    int
+  morek   bool
 }
 
-func newTrivialBloomFilter() *trivialBloomFilter {
-	return &trivialBloomFilter{
-		data: make([]uint64, 1024),
-	}
-}
-
-func (b *trivialBloomFilter) add(item string) {
-	// Do nothing
-}
-
-func (b *trivialBloomFilter) maybeContains(item string) bool {
-	// Technically, any item "might" be in the set
-	return true
-}
-
-func (b *trivialBloomFilter) memoryUsage() int {
-	return binary.Size(b.data)
-}
-
-//AZ Bloomfilter
-type azBloomFilter struct {
-	data []byte
-}
-
-type azBloomIdxMaskPair struct {
-	index int
-	mask  byte
-}
-
-func getHashIdxMaskPairs(item string) [6]azBloomIdxMaskPair {
-	pairs := [6]azBloomIdxMaskPair{}//make([]azBloomIdxMaskPair, 0)
-  /*
-	result := murmur3.Sum32([]byte(item))
-	idx := int((result & 0x0fffff) >> 3)
-	off := result & 0x07
-	offmask := byte(1 << int(off))
-  pairs[0] = azBloomIdxMaskPair{idx, offmask}
-	//pairs = append(pairs, azBloomIdxMaskPair{idx, offmask})
-
-	fnv1 := fnv.New32()
-	fnv1.Write([]byte(item))
-	result = fnv1.Sum32()
-	idx = int((result & 0x0fffff) >> 3)
-	off = result & 0x07
-	offmask = byte(1 << int(off))
-	//pairs = append(pairs, azBloomIdxMaskPair{idx, offmask})
-  pairs[1] = azBloomIdxMaskPair{idx, offmask}
-
-	//jenk3 := jenkins.New(100)
-	//jenk3.Write([]byte(item))
-  result = jenkins.Sum32([]byte(item), 0)
-	idx = int((result & 0x0fffff) >> 3)
-	off = result & 0x07
-	offmask = byte(1 << int(off))
-	//pairs = append(pairs, azBloomIdxMaskPair{idx, offmask})
-  pairs[2] = azBloomIdxMaskPair{idx, offmask}
-*/
-  k := 1
-  for i := 0; i < k; i++ {
-
-    //result := jenkins.Sum32([]byte(item), Seeds[i])
-  	fnv1 := fnv.New64()
-	  fnv1.Write([]byte(item))
-    result := fnv1.Sum64()
-	
-    hold1 := result & 0x0fffff
-    idx := int((result & 0x0fffff) >> 3)
-    off := result & 0x07
-    offmask := byte(1 << int(off))
-	  //pairs = append(pairs, azBloomIdxMaskPair{idx, offmask})
-    pairs[k*i + 0] = azBloomIdxMaskPair{idx, offmask}
-
-    //result = result >> 16//jenkins.Sum32([]byte(item), Seeds[i])
-    hold2 := result >> 20
-    idx = int((hold2 & 0x0fffff) >> 3)
-    off = hold2 & 0x07
-    offmask = byte(1 << int(off))
-	  //pairs = append(pairs, azBloomIdxMaskPair{idx, offmask})
-    pairs[k*i + 1] = azBloomIdxMaskPair{idx, offmask}
-
-    hold3 := result >> 40
-    idx = int((hold3 & 0x0fffff) >> 3)
-    off = hold3 & 0x07
-    offmask = byte(1 << int(off))
-	  //pairs = append(pairs, azBloomIdxMaskPair{idx, offmask})
-    pairs[k*i + 2] = azBloomIdxMaskPair{idx, offmask}
-
-
-    hold4 := hold1 ^ hold2
-    idx = int((hold4 & 0x0fffff) >> 3)
-    off = hold4 & 0x07
-    offmask = byte(1 << int(off))
-	  //pairs = append(pairs, azBloomIdxMaskPair{idx, offmask})
-    pairs[k*i + 3] = azBloomIdxMaskPair{idx, offmask}
-
-    hold5 := hold1 ^ hold3
-    idx = int((hold5 & 0x0fffff) >> 3)
-    off = hold5 & 0x07
-    offmask = byte(1 << int(off))
-	  //pairs = append(pairs, azBloomIdxMaskPair{idx, offmask})
-    pairs[k*i + 4] = azBloomIdxMaskPair{idx, offmask}
-
-    hold6 := hold2 ^ hold3
-    idx = int((hold6 & 0x0fffff) >> 3)
-    off = hold6 & 0x07
-    offmask = byte(1 << int(off))
-	  //pairs = append(pairs, azBloomIdxMaskPair{idx, offmask})
-    pairs[k*i + 5] = azBloomIdxMaskPair{idx, offmask}
-
-
-
- 
+func (b *aBloomFilter) getHashes(item string) []uint64 {
+  k := b.nHashes
+  if b.morek {
+    k *=3
   }
+	hashes := make([]uint64, k)
 
-	return pairs
+	fnv1 := fnv.New64()
+	for i := 0; i < b.nHashes; i++ {
+		fnv1.Write([]byte{byte(i)})
+		fnv1.Write([]byte(item))
+		h := fnv1.Sum64()
+		//hashes[b.bHashes*0+i] = h
+
+    if b.morek {
+      h1 := h >> 32
+      h = h & 0x0ffffffff
+      h2 := h1 ^ h
+      hashes[3+i] = h1
+      hashes[6+i] = h2
+    }
+    hashes[i] = h
+	}
+
+	return hashes
 }
 
-func newAZBloomFilter() *azBloomFilter {
-	return &azBloomFilter{
-		data: make([]byte, 131072),
+func (b *aBloomFilter) getMoreHashes(hash64 uint64) ( uint32, uint32) {
+  return 0,0
+}
+
+
+
+func newBloomFilter(nBytes, nHashes int) *aBloomFilter {
+	return &aBloomFilter{
+		data:    make([]byte, nBytes),
+		nHashes: nHashes,
+    buckets: nBytes,
+		bits:    nBytes * 8,
+    morek: false,
 	}
 }
 
-func (b *azBloomFilter) add(item string) {
-	/*
-		result := murmur3.Sum32([]byte(item))
-		idx := (result & 0x0fffff) >> 3
-		off := result & 0x07
-	  offmask := byte(1 << int(off))
-		b.data[idx] = b.data[idx] | offmask
-	*/
-	pairs := getHashIdxMaskPairs(item)
+func newBloomFilterMoreK(nBytes, nHashes int)(*aBloomFilter, error) {
+  if (nBytes << 3) >= 1 << 32 {
+    return nil, errors.New("size too big for this feature")
+  }
+	return &aBloomFilter{
+		data:    make([]byte, nBytes),
+		nHashes: nHashes,
+    buckets: nBytes,
+		bits:    nBytes * 8,
+    morek: true,
+	}, nil
+}
 
-	for i, hpair := range pairs {
-    if i > 9 {
-      break
-    }
-		idx, mask := hpair.index, hpair.mask
+func (b *aBloomFilter) add(item string) {
+	hashes := b.getHashes(item)
+
+	for _, hash := range hashes {
+	  bucket := (hash%uint64(b.bits))
+		idx, mask := bucket >> 3, byte(1 << (bucket&0x07))
+		//idx, mask := (hash%uint64(b.bits)) >> 3 , byte(hash&0x07)
 		b.data[idx] = b.data[idx] | mask
 	}
 
 }
 
-func (b *azBloomFilter) maybeContains(item string) bool {
-	/*
-		result := murmur3.Sum32([]byte(item))
-		idx := (result & 0x0fffff) >> 3
-		off := result & 0x07
-	  offmask := byte(1 << int(off))
-		return (b.data[idx] & offmask) != 0
-	  pairs := getHashIdxMaskPairs(item)
-	*/
-	pairs := getHashIdxMaskPairs(item)
+func (b *aBloomFilter) maybeContains(item string) bool {
 
-	for i, hpair := range pairs {
-    if i > 9 {
-      break
-    }
-		idx, mask := hpair.index, hpair.mask
+	hashes := b.getHashes(item)
+
+	for _, hash := range hashes {
+    bucket := (hash%uint64(b.bits))
+		idx, mask := bucket >> 3, byte(1 << (bucket&0x07))
 		if (b.data[idx] & mask) == 0 {
 			return false
 		}
@@ -193,6 +111,6 @@ func (b *azBloomFilter) maybeContains(item string) bool {
 	return true
 }
 
-func (b *azBloomFilter) memoryUsage() int {
+func (b *aBloomFilter) memoryUsage() int {
 	return binary.Size(b.data)
 }

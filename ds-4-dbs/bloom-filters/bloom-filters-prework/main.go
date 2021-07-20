@@ -36,7 +36,12 @@ func main() {
 
 	// TODO: Replace trivialBloomFilter with your own implementation
 	//var b bloomFilter = newTrivialBloomFilter()
-  var b bloomFilter = newAZBloomFilter()
+  var b bloomFilter 
+//  var err error
+  b, err = newBloomFilterMoreK(102400, 3)
+  if err != nil {
+    panic(err)
+  }
 
 	// Add every other word (even indices)
 	for i := 0; i < len(words); i += 2 {
