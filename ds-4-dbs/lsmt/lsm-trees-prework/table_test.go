@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"testing"
 )
@@ -35,7 +36,7 @@ func generateSortedItems(n int) []Item {
 	sort.Strings(keys)
 	result := make([]Item, n)
 	for i, key := range keys {
-		value := randomWord(10, 20)
+		value := randomWord(10, 4100) //20)
 		result[i] = Item{key, value}
 	}
 	return result
@@ -91,20 +92,169 @@ func TestTable(t *testing.T) {
 	}
 
 	// TODO: Uncomment the following to test RangeScan
-	/*
-		expectedScan := sortedItems[n/4 : n/3]
-		startKey := expectedScan[0].Key
-		endKey := expectedScan[len(expectedScan)-1].Key
-		iter, err := table.RangeScan(startKey, endKey)
-		if err != nil {
-			t.Fatal(err)
+	expectedScan := sortedItems[n/4 : n/3]
+	startKey := expectedScan[0].Key
+	endKey := expectedScan[len(expectedScan)-1].Key
+	iter, err := table.RangeScan(startKey, endKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actualScan := make([]Item, 0, len(expectedScan))
+	for ; iter.Valid(); iter.Next() {
+		actualScan = append(actualScan, iter.Item())
+	}
+	if !reflect.DeepEqual(expectedScan, actualScan) {
+		t.Fatalf("Unexpected RangeScan result\n\nExpected: %v\n\nActual: %v", expectedScan, actualScan)
+	}
+}
+
+func benchmarkBuildN(i int, b *testing.B) {
+	b.StopTimer()
+	b.ResetTimer()
+	for n := 0; n < b.N; n++ {
+		benchmarkBuild(i, b)
+	}
+}
+
+func benchmarkBuild(n int, b *testing.B) {
+	dir, err := ioutil.TempDir("", "table")
+	if err != nil {
+		b.Fatal(err)
+	}
+	// Clean up temp directory at end of test; you can remove this for debugging.
+	defer os.RemoveAll(dir)
+
+	tmpfile := filepath.Join(dir, "tmpfile")
+
+	//n := 1000
+	sortedItems := generateSortedItems(n)
+
+	toInclude := sortedItems[:n/2]
+	//toExclude := sortedItems[n/2:]
+
+	b.StartTimer()
+	err = Build(tmpfile, toInclude)
+	b.StopTimer()
+	if err != nil {
+		b.Fatalf("Error building Table: %v", err)
+	}
+}
+func BenchmarkBuild1000(b *testing.B) { benchmarkBuildN(1000, b) }
+
+/*
+func benchmarkLoad(n int, b *testing.B) {
+	dir, err := ioutil.TempDir("", "table")
+	if err != nil {
+		b.Fatal(err)
+	}
+	// Clean up temp directory at end of test; you can remove this for debugging.
+	defer os.RemoveAll(dir)
+
+	tmpfile := filepath.Join(dir, "tmpfile")
+
+	//n := 1000
+	sortedItems := generateSortedItems(n)
+
+	toInclude := sortedItems[:n/2]
+	toExclude := sortedItems[n/2:]
+
+	err = Build(tmpfile, toInclude)
+	if err != nil {
+		t.Fatalf("Error building Table: %v", err)
+	}
+
+	table, err := LoadTable(tmpfile)
+	if err != nil {
+		t.Fatalf("Error loading Table: %v", err)
+	}
+}
+
+func benchmarkGet(n int, b *testing.B) {
+	dir, err := ioutil.TempDir("", "table")
+	if err != nil {
+		b.Fatal(err)
+	}
+	// Clean up temp directory at end of test; you can remove this for debugging.
+	defer os.RemoveAll(dir)
+
+	tmpfile := filepath.Join(dir, "tmpfile")
+
+	//n := 1000
+	sortedItems := generateSortedItems(n)
+
+	toInclude := sortedItems[:n/2]
+	toExclude := sortedItems[n/2:]
+
+	err = Build(tmpfile, toInclude)
+	if err != nil {
+		t.Fatalf("Error building Table: %v", err)
+	}
+
+	table, err := LoadTable(tmpfile)
+	if err != nil {
+		t.Fatalf("Error loading Table: %v", err)
+	}
+}
+
+func BenchmarkTable(b *testing.B) {
+
+	sortedItems := generateSortedItems(N_WORDS)
+	toInclude := sortedItems[:N_WORDS/2]
+	toExclude := sortedItems[N_WORDS/2:]
+
+	table, err := LoadTable("/home/alex/large_table")
+	if err != nil {
+		b.Fatalf("Error loading Table: %v", err)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		for _, item := range toInclude {
+			table.Get(item.Key)
 		}
-		actualScan := make([]Item, 0, len(expectedScan))
-		for ; iter.Valid(); iter.Next() {
-			actualScan = append(actualScan, iter.Item())
+
+		for _, item := range toExclude {
+			table.Get(item.Key)
 		}
-		if !reflect.DeepEqual(expectedScan, actualScan) {
-			t.Fatalf("Unexpected RangeScan result\n\nExpected: %v\n\nActual: %v", expectedScan, actualScan)
+	}
+}
+*/
+func BenchmarkTableGet80K(b *testing.B) {
+
+	dir, err := ioutil.TempDir("", "table")
+	if err != nil {
+		b.Fatal(err)
+	}
+	// Clean up temp directory at end of test; you can remove this for debugging.
+	defer os.RemoveAll(dir)
+
+	tmpfile := filepath.Join(dir, "tmpfile")
+	n := 80000
+	sortedItems := generateSortedItems(n)
+	toInclude := sortedItems[:n/2]
+	toExclude := sortedItems[n/2:]
+
+	err = Build(tmpfile, toInclude)
+	if err != nil {
+		b.Fatalf("Error building Table: %v", err)
+	}
+
+	table, err := LoadTable(tmpfile)
+	if err != nil {
+		b.Fatalf("Error loading Table: %v", err)
+	}
+
+	//table, err := LoadTable("/home/alex/large_table")
+	//if err != nil {
+	//	b.Fatalf("Error loading Table: %v", err)
+	//}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		for _, item := range toInclude {
+			table.Get(item.Key)
 		}
-	*/
+
+		for _, item := range toExclude {
+			table.Get(item.Key)
+		}
+	}
 }
