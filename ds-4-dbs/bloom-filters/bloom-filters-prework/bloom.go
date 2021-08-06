@@ -2,12 +2,17 @@ package main
 
 import (
 	"encoding/binary"
-  "errors"
+  //"errors"
+  "unsafe"
 	//	"fmt"
 	//"github.com/spaolacci/murmur3"
 	"hash/fnv"
 	//"leb.io/hashland/jenkins"
 )
+
+
+const BitPositionMask = 0x03f
+const BucketShift = 6
 
 type bloomFilter interface {
 	add(item string)
@@ -21,75 +26,71 @@ type bloomFilter interface {
 }
 
 type aBloomFilter struct {
-	data    []byte
-	nHashes int
-  buckets int
-	bits    int
-  morek   bool
+	data    []uint64
+	nHashes uint64
+  nBuckets uint64
+	nBits   uint64
+  bitsPerKey uint64
 }
 
-func (b *aBloomFilter) getHashes(item string) []uint64 {
-  k := b.nHashes
-  if b.morek {
-    k *=3
+func (b *aBloomFilter) getBitPositions(item string) []uint64 {
+  fnvHash := fnv.New64()
+
+	// The basic way to convert `item` into a byte array is as follows:
+	//
+	//     bytes := []byte(item)
+	//
+	// However, this `unsafe.Pointer` hack lets us avoid copying data and
+	// get a slight speed-up by directly referencing the underlying bytes
+	// of `item`.
+
+	fnvHash.Write(*(*[]byte)(unsafe.Pointer(&item)))
+	fnvSum := fnvHash.Sum64()
+	fnvSum1 := fnvSum & 0xffffffff
+	fnvSum2 := fnvSum >> 32
+  bitPositions := make([]uint64, b.nHashes)
+	for i := uint64(0); i < b.nHashes; i++ {
+		bitPositions[i] = (fnvSum1 + fnvSum2*i) % b.nBits
   }
-	hashes := make([]uint64, k)
-
-	fnv1 := fnv.New64()
-	for i := 0; i < b.nHashes; i++ {
-		fnv1.Write([]byte{byte(i)})
-		fnv1.Write([]byte(item))
-		h := fnv1.Sum64()
-		//hashes[b.bHashes*0+i] = h
-
-    if b.morek {
-      h1 := h >> 32
-      h = h & 0x0ffffffff
-      h2 := h1 ^ h
-      hashes[3+i] = h1
-      hashes[6+i] = h2
-    }
-    hashes[i] = h
-	}
-
-	return hashes
-}
-
-func (b *aBloomFilter) getMoreHashes(hash64 uint64) ( uint32, uint32) {
-  return 0,0
+  return bitPositions[:b.nHashes]
 }
 
 
-
-func newBloomFilter(nBytes, nHashes int) *aBloomFilter {
-	return &aBloomFilter{
-		data:    make([]byte, nBytes),
-		nHashes: nHashes,
-    buckets: nBytes,
-		bits:    nBytes * 8,
-    morek: false,
-	}
-}
-
-func newBloomFilterMoreK(nBytes, nHashes int)(*aBloomFilter, error) {
-  if (nBytes << 3) >= 1 << 32 {
-    return nil, errors.New("size too big for this feature")
+func newBloomFilter(nItems, bitsPerKey  uint64) *aBloomFilter {
+  nBits := nItems * bitsPerKey
+  if nBits < 64 {
+    nBits = 64
   }
+
+  nBuckets := (nBits + 63) / 64
+
+  nBits = nBuckets * 64
+
+  nHashes := uint64(float64(bitsPerKey) * 0.69)
+
+  if nHashes < 1 {
+    nHashes = 1
+  }
+
+  if nHashes > 30 {
+    nHashes = 30
+  }
+
 	return &aBloomFilter{
-		data:    make([]byte, nBytes),
+		data:    make([]uint64, nBuckets),
 		nHashes: nHashes,
-    buckets: nBytes,
-		bits:    nBytes * 8,
-    morek: true,
-	}, nil
+    nBuckets: nBuckets,
+		nBits:    nBits,
+    bitsPerKey: bitsPerKey,
+	}
 }
 
 func (b *aBloomFilter) add(item string) {
-	hashes := b.getHashes(item)
+	positions := b.getBitPositions(item)
 
-	for _, hash := range hashes {
-	  bucket := (hash%uint64(b.bits))
-		idx, mask := bucket >> 3, byte(1 << (bucket&0x07))
+	for _, position := range positions {
+	  //bucket := position >> 6
+		idx, mask := position >> BucketShift, uint64(1) << (position & BitPositionMask)
 		//idx, mask := (hash%uint64(b.bits)) >> 3 , byte(hash&0x07)
 		b.data[idx] = b.data[idx] | mask
 	}
@@ -98,11 +99,13 @@ func (b *aBloomFilter) add(item string) {
 
 func (b *aBloomFilter) maybeContains(item string) bool {
 
-	hashes := b.getHashes(item)
+	positions := b.getBitPositions(item)
 
-	for _, hash := range hashes {
-    bucket := (hash%uint64(b.bits))
-		idx, mask := bucket >> 3, byte(1 << (bucket&0x07))
+	for _, position := range positions {
+    //bucket := (hash%uint64(b.bits))
+		idx, mask := position >> BucketShift, uint64(1) << (position & BitPositionMask)
+
+		//idx, mask := bucket >> 3, byte(1 << (bucket&0x07))
 		if (b.data[idx] & mask) == 0 {
 			return false
 		}

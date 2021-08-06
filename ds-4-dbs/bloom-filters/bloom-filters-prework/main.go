@@ -38,7 +38,7 @@ func main() {
 	//var b bloomFilter = newTrivialBloomFilter()
   var b bloomFilter 
 //  var err error
-  b, err = newBloomFilterMoreK(102400, 3)
+  b = newBloomFilter(uint64(len(words)), 10)//newBloomFilterMoreK(102400, 3)
   if err != nil {
     panic(err)
   }
