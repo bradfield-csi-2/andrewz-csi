@@ -233,6 +233,14 @@ func BenchmarkTableGet80K(b *testing.B) {
 	toInclude := sortedItems[:n/2]
 	toExclude := sortedItems[n/2:]
 
+  rand.Shuffle(len(toInclude), func(i, j int) {
+		toInclude[i], toInclude[j] = toInclude[j], toInclude[i]
+	})
+
+  rand.Shuffle(len(toExclude), func(i, j int) {
+		toExclude[i], toExclude[j] = toExclude[j], toExclude[i]
+	})
+
 	err = Build(tmpfile, toInclude)
 	if err != nil {
 		b.Fatalf("Error building Table: %v", err)

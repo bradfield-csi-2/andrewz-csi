@@ -34,11 +34,13 @@ func Build(path string, sortedItems []Item) error {
 	idxStructs := make([]indexBlockStruct, 0, 256)
 	idxKeyBytes := make([]byte, 0, 1024)
 
+  filter := newBloomFilter(uint64(len(sortedItems)), 10)
+
 	currFileOffset, nextFileOffset := int64(0), int64(0)
 	itemIter := newItemIterator(sortedItems)
 	newBlockItemRange, blockByteLen, eof, err := itemIter.getNewBlockItems()
 	for {
-		newBlock := newBlock(newBlockItemRange, blockByteLen)
+		newBlock := newBlock(newBlockItemRange, blockByteLen, filter)
 		err = newBlock.Write(f)
 		if err != nil {
 			return err
@@ -79,12 +81,24 @@ func Build(path string, sortedItems []Item) error {
 		return err
 	}
 	indexBlock := newIndexBlock(idxStructs, idxKeyBytes, len(idxKeyBytes))
+  fmt.Println(len(idxStructs))
 	err = indexBlock.Write(f)
 	if err != nil {
 		return err
 	}
 
 	nextFileOffset, err = f.Seek(0, io.SeekCurrent)
+
+  if err != nil {
+		return err
+	}
+	
+  err = filter.Write(f)
+
+	if err != nil {
+		return err
+	}
+	
 	footer := tableFooter{currFileOffset, nextFileOffset}
 	err = binary.Write(f, binary.LittleEndian, footer)
 	if err != nil {
@@ -101,11 +115,14 @@ func Build(path string, sortedItems []Item) error {
 type Table struct {
 	file  *os.File
 	index blockIndex
+  filter aBloomFilter
+  cache blockCache
 }
 
 type tableFooter struct {
 	IndexOffset int64
-	IndexEnd    int64
+	//IndexEnd    int64
+  BloomFilterOffset int64
 }
 
 // Prepares a Table for efficient access. This will likely involve reading some metadata
@@ -137,10 +154,23 @@ func LoadTable(path string) (*Table, error) {
 		return nil, err
 	}
 
+	table.filter, err = loadBloomFilter(f, footer.BloomFilterOffset)
+	if err != nil {
+		return nil, err
+	}
+
+  table.cache = newBlockCache()
+
 	return &table, nil
 }
 
 func (t *Table) Get(key string) (string, bool, error) {
+  maybeContains := t.filter.maybeContains(key)
+  if !maybeContains {
+    //fmt.Println("hitting")
+		return "", false, nil
+  }
+
 	i := t.index.GetFirstGE(key)
 
 	if i == len(t.index.pages) {
@@ -149,10 +179,17 @@ func (t *Table) Get(key string) (string, bool, error) {
 
 	page := t.index.pages[i]
 
-	items, err := loadBlockItems(t.file, page)
-	if err != nil {
-		return "", false, err
-	}
+
+  items, inCache := t.cache.Get(page.blockStart)
+
+  if !inCache {
+    var err error
+	  items, err = loadBlockItems(t.file, page)
+	  if err != nil {
+		  return "", false, err
+	  }
+    t.cache.Cache(page.blockStart, items)
+  }
 
 	j := sliceFirstGE(items, key)
 	if j == len(items) {

@@ -1,18 +1,15 @@
-package table//main
+package table
 
 import (
 	"encoding/binary"
-  //"errors"
-  //
-	//	"fmt"
-	//"github.com/spaolacci/murmur3"
   "unsafe"
 	"hash/fnv"
-	//"leb.io/hashland/jenkins"
+  "io"
 )
 
 const BitPositionMask = 0x03f
-const BucketNumMask = 0xffffffffffffffc0
+const BucketShift = 6
+
 
 var numberOfHashFunctions uint64 = 9
 var memoryUsageInBits uint64 = 8
@@ -29,20 +26,50 @@ type bloomFilter interface {
 }
 
 type aBloomFilter struct {
-	data    []byte
-	nHashes int
-  buckets int
-	bits    int
-  bitsPerKey int
+	data    []uint64
+	nHashes uint64
+  nBuckets uint64
+	nBits   uint64
+  bitsPerKey uint64
+}
+
+type bloomFilterBlock struct {
+  NHashes uint64
+  NBuckets uint64
+  NBits uint64
+  BitsPerKey uint64
 }
 
 
-func getBitPositions(item string) []uint64 {
-	fnvHash := fnv.New64()
+func (b *aBloomFilter) getBlock() bloomFilterBlock {
+  return bloomFilterBlock{
+    b.nHashes,
+    b.nBuckets,
+    b.nBits,
+    b.bitsPerKey,
+  }
+}
 
-	// The hack below was copied from the solution:
-	// next time I should be smart enough to come up with it myself:)
-	// since I saw in pprof that stringtobyteslice takes 27% of total cpu time
+func (b *bloomFilterBlock) Write(w io.Writer) error {
+  err := binary.Write(w, binary.LittleEndian, b)
+	if err != nil {
+		return err
+	}
+  return nil
+}
+
+
+func (b *bloomFilterBlock) createFilter() aBloomFilter {
+  return aBloomFilter{
+    nHashes: b.NHashes,
+    nBuckets: b.NBuckets,
+    nBits: b.NBits,
+    bitsPerKey: b.BitsPerKey,
+  }
+}
+
+func (b *aBloomFilter)getBitPositions(item string) []uint64 {
+	fnvHash := fnv.New64()
 
 	// The basic way to convert `item` into a byte array is as follows:
 	//
@@ -56,48 +83,47 @@ func getBitPositions(item string) []uint64 {
 	fnvSum := fnvHash.Sum64()
 	fnvSum1 := fnvSum & 0xffffffff
 	fnvSum2 := fnvSum >> 32
-  bitPositions := make([]uint64,20)
-	for i := uint64(0); i < numberOfHashFunctions; i++ {
-		bitPositions[i] = (fnvSum1 + fnvSum2*i) % memoryUsageInBits
-	}
-	return bitPositions
-}
-
-func (b *aBloomFilter) getBitPositions(item string) []uint64 {
-	fnvHash := fnv.New64()
-
-  bitPositions := make([]uint64,20)
-	fnvHash.Write(*(*[]byte)(unsafe.Pointer(&item)))
-	fnvSum := fnvHash.Sum64()
-	fnvSum1 := fnvSum & 0xffffffff
-	fnvSum2 := fnvSum >> 32
+  bitPositions := make([]uint64,b.nHashes)
 	for i := uint64(0); i < b.nHashes; i++ {
-		bitPositions[i] = (fnvSum1 + fnvSum2*i) % b.bits//memoryUsageInBits
+    bitPositions[i] = (fnvSum1 + fnvSum2*i) % b.nBits
 	}
 	return bitPositions
 }
 
+func newBloomFilter(nItems, bitsPerKey  uint64) *aBloomFilter {
+  nBits := nItems * bitsPerKey
+  if nBits < 64 {
+    nBits = 64
+  }
 
+  nBuckets := (nBits + 63) / 64
 
-func newBloomFilter(nItems, bitsPerKey int) *aBloomFilter {
+  nBits = nBuckets * 64
+
+  nHashes := uint64(float64(bitsPerKey) * 0.69)
+
+  if nHashes < 1 {
+    nHashes = 1
+  }
+
+  if nHashes > 30 {
+    nHashes = 30
+  }
 
 	return &aBloomFilter{
-		data:    make([]uint64, nBytes),
+		data:    make([]uint64, nBuckets),
 		nHashes: nHashes,
-    buckets: nBytes,
-		bits:    nBytes * 64,
-    bitsPerKey: bitsPerKey
+    nBuckets: nBuckets,
+		nBits:    nBits,
+    bitsPerKey: bitsPerKey,
 	}
 }
 
-
 func (b *aBloomFilter) add(item string) {
-	hashes := b.getHashes(item)
+	positions := b.getBitPositions(item)
 
-	for _, hash := range hashes {
-	  bucket := (hash%uint64(b.bits))
-		idx, mask := bucket >> 3, byte(1 << (bucket&0x07))
-		//idx, mask := (hash%uint64(b.bits)) >> 3 , byte(hash&0x07)
+	for _, position := range positions {
+		idx, mask := position >> BucketShift, uint64(1) << (position & BitPositionMask)
 		b.data[idx] = b.data[idx] | mask
 	}
 
@@ -105,11 +131,10 @@ func (b *aBloomFilter) add(item string) {
 
 func (b *aBloomFilter) maybeContains(item string) bool {
 
-	hashes := b.getHashes(item)
+	positions := b.getBitPositions(item)
 
-	for _, hash := range hashes {
-    bucket := (hash%uint64(b.bits))
-		idx, mask := bucket >> 3, byte(1 << (bucket&0x07))
+	for _, position := range positions {
+		idx, mask := position >> BucketShift, uint64(1) << (position & BitPositionMask)
 		if (b.data[idx] & mask) == 0 {
 			return false
 		}
@@ -120,4 +145,70 @@ func (b *aBloomFilter) maybeContains(item string) bool {
 
 func (b *aBloomFilter) memoryUsage() int {
 	return binary.Size(b.data)
+}
+
+
+func (b *aBloomFilter) Write(w io.Writer) error {
+	//compressWriter, err := zlib.NewWriterLevel(w, zlib.BestCompression)
+	//defer compressWriter.Close()
+  var err error
+  compressWriter := w
+
+	if err != nil {
+		return err
+	}
+
+  block := b.getBlock()
+
+	err = binary.Write(compressWriter, binary.LittleEndian, block)
+	if err != nil {
+		return err
+	}
+
+	err = binary.Write(compressWriter, binary.LittleEndian, b.data)
+	if err != nil {
+		return err
+	}
+  /*
+	err = binary.Write(compressWriter, binary.LittleEndian, b.bytes)
+	if err != nil {
+		return err
+	}
+
+	//err = compressWriter.Flush()
+	if err != nil {
+		return err
+	}
+  */
+	return nil
+}
+
+
+func loadBloomFilter(rs io.ReadSeeker, bloomFilterOffset int64) (aBloomFilter, error) {
+	//index := blockIndex{}
+	rs.Seek(bloomFilterOffset, io.SeekStart)
+
+	//compressReader, err := zlib.NewReader(rs)
+  compressReader := rs
+  var err error
+
+	var bloomFilter aBloomFilter
+  var bloomBlock bloomFilterBlock
+	err = binary.Read(compressReader, binary.LittleEndian, &bloomBlock)
+	if err != nil {
+		return bloomFilter, err
+	}
+
+  data := make([]uint64, bloomBlock.NBuckets)
+	err = binary.Read(compressReader, binary.LittleEndian, data)
+	if err != nil {
+		return bloomFilter, err
+	}
+
+  bloomFilter = bloomBlock.createFilter()
+
+  bloomFilter.data = data
+
+	return bloomFilter, nil
+
 }
