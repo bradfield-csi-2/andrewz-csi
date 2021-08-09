@@ -13,12 +13,15 @@ const (
 
 func TestBitmap(t *testing.T) {
 	b1 := newUncompressedBitmap()
+	r1 := newRoaringBitmap()
+
 	m1 := make(map[uint32]struct{})
 
 	// Call Set a bunch
 	for i := 0; i < items; i++ {
 		x := start + uint32(rand.Intn(limit))
 		b1.Set(x)
+		r1.Set(x)
 		m1[x] = struct{}{}
 	}
 
@@ -28,19 +31,25 @@ func TestBitmap(t *testing.T) {
 		if ok != b1.Get(x) {
 			t.Fatalf("Get should've returned %t for %d\n", ok, x)
 		}
+		if ok != r1.Get(x) {
+			t.Fatalf("ROARING Get should've returned %t for %d\n", ok, x)
+		}
 	}
 
 	b2 := newUncompressedBitmap()
 	m2 := make(map[uint32]struct{})
+  r2 := newRoaringBitmap()
 
 	// Call Set a bunch
 	for i := 0; i < items; i++ {
 		x := uint32(rand.Intn(limit))
 		b2.Set(x)
+    r2.Set(x)
 		m2[x] = struct{}{}
 	}
 
 	union := b1.Union(b2)
+  //runion := r1.Union(r2)
 	intersect := b1.Intersect(b2)
 	for x := uint32(0); x < start+limit+wordSize; x++ {
 		_, ok1 := m1[x]
@@ -48,19 +57,20 @@ func TestBitmap(t *testing.T) {
 		if (ok1 || ok2) != union.Get(x) {
 			t.Fatalf("Union: Get should've returned %t for %d\n", ok1 || ok2, x)
 		}
+		//if (ok1 || ok2) != runion.Get(x) {
+		//	t.Fatalf("Roaring Union: Get should've returned %t for %d\n", ok1 || ok2, x)
+		//}
+	
 		if (ok1 && ok2) != intersect.Get(x) {
 			t.Fatalf("Intersect: Get should've returned %t for %d\n", ok1 && ok2, x)
 		}
 	}
 
-  //t.Logf("%v\n",b1.data[:100])
 
 	compressed := compress(b1)
-  //t.Logf("%v\n",compressed[:100])
 
 	t.Logf("Uncompressed size: %d words, compressed size: %d words\n", len(b1.data), len(compressed))
 	b := decompress(compressed)
-  //t.Logf("%v\n",b.data[:100])
 
 	for x := uint32(0); x < start+limit+wordSize; x++ {
 		if b1.Get(x) != b.Get(x) {
