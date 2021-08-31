@@ -10,7 +10,9 @@ int brutish(long n);
 int miller_rabin(long n);
 
 void exit_with_usage() {
-  fprintf(stderr, "Usage: ./primality [brute_force|brutish|miller_rabin] [-r rangeStart rangeEnd ]\n");
+  //fprintf(stderr, "Usage: ./primality [brute_force|brutish|miller_rabin] [-r rangeStart rangeEnd ]\n");
+  fprintf(stderr, "Usage: ./primality [brute_force|brutish|miller_rabin] \n");
+
   exit(1);
 }
 
@@ -18,7 +20,7 @@ int main(int argc, char*argv[]) {
   long num;
   int (*func)(long), tty;
 
-  if (argc != 2 && argc != 5)
+  if (argc != 2)
     exit_with_usage();
   //alllow more than two
   //have a flag for -r range start end
@@ -34,8 +36,10 @@ int main(int argc, char*argv[]) {
     exit_with_usage();
 
 
-  fprintf(stderr, "Called primality with %d args. And method %s \n", argc, argv[1]);
+  //fprintf(stderr, "Called primality with %d args. And method %s \n", argc, argv[1]);
 
+  tty = isatty(fileno(stdin));
+  /*
   int rangeFlag = 0;
   if (argc == 5 && strcmp(argv[2], "-r") == 0)
     rangeFlag = 1;
@@ -47,7 +51,6 @@ int main(int argc, char*argv[]) {
 
 
 
-  tty = isatty(fileno(stdin));
 
   if (rangeFlag) {
     char *eptr;
@@ -55,10 +58,10 @@ int main(int argc, char*argv[]) {
 
     rstart = strtol(argv[3], &eptr, 0);
 
-    /* If the result is 0, test for an error */
+    // If the result is 0, test for an error 
     if (rstart == 0)
     {
-        /* If a conversion error occurred, display a message and exit */
+        // If a conversion error occurred, display a message and exit 
         if (errno == EINVAL)
         {
             //fprintf(stderr, "Conversion error occurred for range start: %d\n", errno);
@@ -70,10 +73,10 @@ int main(int argc, char*argv[]) {
 
     rend = strtol(argv[4], &eptr, 0);
 
-    /* If the result is 0, test for an error */
+    // If the result is 0, test for an error 
     if (rend == 0)
     {
-        /* If a conversion error occurred, display a message and exit */
+        // If a conversion error occurred, display a message and exit 
         if (errno == EINVAL)
         {
             //fprintf(stderr,"Conversion error occurred for range end: %d\n", errno);
@@ -125,6 +128,7 @@ int main(int argc, char*argv[]) {
     exit(0);
   }
 
+    */
   if (tty) {
 
     fprintf(stderr, "Running \"%s\", enter a number:\n> ", argv[1]);
