@@ -95,8 +95,6 @@ In both cases, we can add time as a 64 bit integer and also simply append it to 
 3. Disk Storage
 4. Hit Log
 
-insert diagram here
-insert diagram here
 ![](Diagram-1.jpeg)
 
 ### Replication and Failure
