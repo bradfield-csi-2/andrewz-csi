@@ -1,0 +1,54 @@
+Writing to plan my tree
+
+
+1. Have levels be mutiples of 10 of eachother?
+2. When a level reaches it's limit - merge it with another?
+3. How to deal with concurrency?
+4. should we merge the whole level?
+
+have a write a head log which keeps track of transactions 
+have a mem-table which copies the actions of the log to create an in memory structure
+when the log reaches above 4mb, write the sorted mem-table to disk in 
+
+level - 0 -> 4MB files ish -> just output of log files 
+level L -> (10^L)MB -> 2MB size files 
+//when file size exceeds 2MB or key range exceed more than ten blocks of next block 
+//split file 
+//when level exceeds it's limit -> compact into next level 
+//have a read write lock on each level 
+//acquire lock on level when reading/writing
+each level has bloomfilter?
+//is there an overall bloom filter? //should be otherwise have to search all levels 
+//is that useful for long running process?
+//can't delete items 
+//useful at each level tho --> have overall and level bloomfilter?
+//would have to rebuilt for each compaction?
+//seems ok 
+
+wait should each file be an sstable with it's own blocks?
+what about cache?
+//i'm ok with having a bloom filter
+//check the bloom filter 
+//but each level needs it's own key and bloom filter 
+//plus the overall bloomfilter 
+//level bloomfilter is just OR of all child bloomfilter 
+//start's over at each compaction
+
+//how much data am i expecting to hold in one node?
+//let's say 100GB ? how many keys is that assuming keys are half
+//the data 50GB 50GB hashed is what for a bloom filter? 
+//should it be relative to each level? //then how will i OR the filters?
+//let's say the 50GB version is only ok -> about 10% useful
+//then each lower level must be much better?
+//each file will surely be useful 
+//each level will be ok 
+
+
+//ok have basic sstable which builds sorted items 
+//maybe will ask it to take a skip list memtable 
+//create a file from this 
+//add this to a lsmt level?
+//have a cache of these files?
+invalidate the cache when compacting?
+
+how to handle concurrency
