@@ -137,7 +137,7 @@ Compute: Parsing and forwarding is super fast.
 
 #### Image Caching Service
 The more memory the better. But memory is expensive at the scale we are storing.
-1 year is about 365 TB of image files. We can purchase 512 GB of Rame with 8GB RAM per core for one year dedicated amazon about $20k
+1 year is about 365 TB of image files. We can purchase 512 GB of RAM with 8GB RAM per core for one year dedicated amazon about $20k
 not clear that we would really get much benefit from caching as we need scalable storage anyway and are serving only hundreds of requests per second. With hundreds of machines for storage we could probably just get away with serving straight from disk. Our average latency wouldn't be too good, but our base latency would remain about the same, and if our object storage has caching already we would benefit with no extra components.
 
 
