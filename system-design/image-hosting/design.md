@@ -1,86 +1,3 @@
-draft
-
-
-1. analysis
-
-seems to be memory or network bound on writes
-reads should be ok as long as disk reads are fast enough
-
-assumptions about 1MB files on avg
-
-thinking of using s3 storage. but there will be some latency.
-should be ok as long as what?
-how to web pages load assets? do they request it separately? or 
-at a specifc url when loading the page?
-
-no they are linked. so we send them from the link. means we need to 
-read link and fetch from storage.
-
-assume s3 storage is fairly fast. retrieval takes 100ms? but can do as many in parallel as possibly becuz of amazon infrastructure.
-is there a way to get cheaper storage? any object storage software outthere?
-
-anyway. data access to get s3 key. for 500k objects. key is pretty long and url is pretty long. but we can restrict them to a certain number of characters.
-
-
-components
-1. server to handle read and write requests.
-2. image validator and resizer
-3. s3 storage
-4. database for s3 keys and links
-5. link generator. -> choose random parts of the section? sections of 1000?
-user bitmap to know which have been used or not?
-6. caching layer would be nice, but hard to know what caching strategy would work best
-
-60 uploads / sec
-600 reads / sec
-
-can accomplish with just a few servers and using s3 cluster in same datacenter.
-
-generally
-latency can be on the order of secs for upload
-
-requests for upload comes in
-goes to image validator and resize
-after validation - start to prepare a link for the image
-resize them - takes one core less than 100ms to resize 2MB 4MP image to 
-three standard sizes.
-store in s3
-save key in database with links. standard sizes can just be
-appended onto link. 
-we can save separate entries for all of them, or we can save main link and save the key for each as a field. original, small, med, large
-once write completes, replicate as necssary
-return and tell user success with image link.
-additionally we can create a job tracking service which let's us know which jobs are still processing? for which user, what has been completed or not.
-if not then what?? retry? with the original file?? in a tmp file on the original server?? it's possible. have to be pretty careful, but should be ok.
-Can we push to user the update?? what if loses connection?
-
-request for read comes in
-check the database for the link
-grab the key for the size
-check cache
-if not in cache then go to s3 storage
-
-what's the latency?? 
-for image processing it shouldn't be too long. maybe a second at most. actually not even. 500ms at most?
-reads should also only take about 100ms without network trips. maybe 300ms total.
-
-
-
-Considerations:
-1. Compute
-2. Storage
-3. Disk
-4. Network
-5. Cost
-
-
-The basic requirements of this system are:
-1. 6 Uploads per second
-2. 60 Views per second
-
-The images need to be resized. We will resize them to 3 basic sizes: large, medium, and small with widths of 1024, 800, and 500.
-
-Images should be web-sized range so we will assume the images are 1MB files on average. This seems to be on the high end, but we will use it to give ourselves a wide buffer of expectation.
 
 ## Image Hosting
 
@@ -294,6 +211,15 @@ Recommendation: Single leader with one or more synchrous followers.
 Reasoning: simple and latency is expected at write time anyway. So we don't upset users with write latency and we can minimize downtime on the leader going down since it costs essentially nothing to switch to the follower and then let the former leader know it needs to become a follower on rejoining.
 
 Replication complication: replicating the job and link statuses could be slightly complex. But we can simply do checks, restart jobs, and throw away unused links to accomodate.
+
+### Latency
+
+The majority of latency for an upload is dominated by the resizing and writing of the image files. It takes about 200ms to finish the resizing process. And it takes about 60ms to write 2MB of image file for an average request.
+
+Including the 5 or so network hops we are doiing (an additional 2.5 ms in a data center) that's less than 300ms to do all the processing. We can add an additional 150ms latency to get to and from the user. 450ms is quite fast for the overall process we expected. As we were initially given a 10s buffer, it doesn't really matter how much extra time the other services take processing and writing even though we expect them to be negligible in comparison.
+
+
+On a read we must be much faster. However, the latency is dominated by the eads to find the object key and read the file from storage. We expect about 30 ms to read a 1MB file and maybe another 30ms to read all the pages which store the link to key mapping and the object location. We can even add 100ms for ten or so disk seens. So overall under 200ms total to find the file and  read it from disk. Even if we double that time and add 150ms latency to the user it comes to about 650 ms total on average. And we get better latency for users close by and loading smaller image size. This seems well within budget.
 
 ### Other considerations
 - It's expensive to buy networking equipment machines upfront. It also requires a lot of operating and maintenance costs to keep even tens of machines connected with Gigabit standard network bandwith. Furthermore, cloud service providers have better proprietary technology for processing packets and data. It seems that more than a handful of machines is not worth building yourself.
