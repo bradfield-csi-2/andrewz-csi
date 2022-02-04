@@ -73,48 +73,7 @@ Given these benchmarks on resize latency and memory usage, we collected the stat
 | link - key mapping | 200 bytes | 7 | 6 usec per second  | 14 | seeks |
 
 
-
-####
-
-
-
-If we look, we see that the compute of the resize is the bottle neck, and the only component of our image resizing
-
-
-| First Header  | Second Header |
-| ------------- | ------------- |
-| Content Cell  | Content Cell  |
-| Content Cell  | Content Cell  |
-
-Assume we have a 1 Gigabit per second connection fo
-
-
-Seems we can assume our largest files will be on the 2MB range, but let's consider the impact of all of them.
-
-
-
-This is actually rather low and for an average request would be simple to handle. However, since we are dealing with large files, we have to take a lot more care in considering their memory and storage footprint, and their network and processing throughput.
-
-For processing, I am basing my estimates over benchmarks runs on files resized using Pillow: https://pillow.readthedocs.io/en/stable/
-
-With 200KB files we would be expecting to process about 1.2MB per second. We could push about one of these through Gigabit speed network at 2ms per file, which is about 500 per second. We process at abour 10ms per file, so 100 resizes per second. If resizing 3 times we can round up and say we take 40ms to process an upload which is about 25 files per second on a single core.
-
-With 2MB files we expect to process about 12MB per second.
-on Gigabit network: read 20ms. throughput: 50 per second
-processing: 50ms resize. 200ms total processing. throughput: 5 per second per core
-
-With 10MB file - 120MB per second
-read 100ms . throughput: 10 per second
-10GBPS. 10ms - 1000 per second
-processing. 500ms resize. 2 resizes per second. total 2s. thorughout: .5 per second for single core
-
-| File Size  | MP | Mem 6/sec | Mem 10/sec | Mem 100 / sec | Net Read 1GBPS | Net Thru 1GBPS | Net Read 10GBPS | Net Thru 10GBPS | Img Resz Lat | Img Resz Thru  | Proc Lat | Proc Thru |
-| ------------- | ------------- |------------- | ------------- | ------------- |------------- | ------------- | ------------- |------------- | ------------- |--- |------------- | ------------- |
-| 200 KB | 1  | 1.2 MB | 2 MB | 20 MB | 2 ms | 500 | 200 usec | 5000 | 10 ms | 100 | 40 ms | 25 |
-| 2MB  | 45 | 12 MB  | 20 MB  | 200 MB  |  20 ms  | 50  | 2 ms  |  500  | 50 ms  | 20 | 200 ms  | 5 | 
-| 10MB | 70 | 60 MB  | Content Cell  |  Content Cell  | Content Cell  | Content Cell  |  Content Cell  | Content Cell  | Content Cell  | Content Cell  | Content Cell  | Content Cell  |
-
-We can see that, even if we expect to process large 10MB files with 70 MegaPixels, we can comfortable process 10 requests with Gigabit networking bandwidth and 100 requests with 10 Gigabit bandwidth. This is well above our average 6 requests per second, and we get ten times as much throughput with a more reasonable and typical 1MB file.
+We can see that, even if we expect to process large 10MB files with 70 MegaPixels, we can comfortably process 10 requests with Gigabit networking bandwidth and 100 requests with 10 Gigabit bandwidth. This is well above our average 6 requests per second, and we get ten times as much throughput with a more reasonable and typical 1MB file.
 
 Similarly, even if we expect to process 100 extremely large files, our memory footprint only reaches around 50 GiB, well within the capacity of a typical large machine with 64GB.
 
