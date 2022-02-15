@@ -112,6 +112,10 @@ Our metric data will be harder to compress but if we use varint encoding then we
 On the batched side, we can use varint and run length encoding to sort all our metric data, since they are sorted by the metric data field. We can drop our time data, since we will just put them into their time range buckets and we won't actually care about their original time. We can use the same appid compression as mentioned above. So we will most likely only need to worry about the node id pattern. Even if we can't compress this 4byte field. It still means we are generally only storing 4 bytes for each data point. if we compress the metric data to 2 bytes on average using a varint delta encoding and a run length encoding we get around 6 bytes on average. This leaves us with a similar storage which scales nicely as the one above. We will get <1TB of storage for the year. After which, we can save all our calculations and throw it away so we can reuse the space for the next year's batch processing.
 
 
+Search Cache
+
+Even though we should be able to quickly grab and return items from SSD and even HDD longer storage, it would be nice to have a cache for frequent queries. And since users are often querying for data on a specific granularity and across time intervals, it would nice if our caching system kept data which was touched by multiple queries, even if the ranges are not exactly the same. So if our cache and server work together to only query for ranges which we don't already have cached, we might save ourselves a lot of work. This seems like a nice to have feature, and won't make or break our design though.
+
 ### Other Considerations
 In the case that all of these are too optimistic, we can always fall back on using Resevoir Sampling. This gives us control over how much data we are storing and analyzing and should often give us reasonable insight into our data. We can trade off accuracy for more speed and space using resevoir sampling. We can use this exclusively, or we can mix it with our described approach above to return a quick and dirty estimated value before our batch processes finishes.
 
