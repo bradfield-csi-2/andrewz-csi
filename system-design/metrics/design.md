@@ -68,6 +68,7 @@ We will be writing data constantly, but we will only have a few hundred users fr
 
 ### Design
 
+same image as beginning of document
 ![same as beginning](diagram.jpg)
 
 We will hold recent data (for now about a day's worth) in memory. This will allow internal users to quickly and easily debug current problems.
@@ -106,14 +107,17 @@ Our nodes are also fairly consistent. We expect them to report each second, and 
 
 With appId, it is less compressible but similar. With only 3 services, there are only 9 3 data point patterns that can exist. So if if we use one byte to encode each 3 point pattern and run-length encoding, we can compress the appid column to 1/3 it's original size at least. It seems reasonable we can expect another 3x with run length so around 10% of it's original size. On the 1 byte appId, this is still very good.
 
-Our metric data will be harder to compress but if we use varint encoding then we can expect less than 8 bytes on average, combined with our appId of 10% or one byte. We've reduced our per second datapoint size to maybe 5-8 bytes at least. And so per second we might expect to write < 25KB no matter how much we blow up. Over one day that's only 2.5GB. Over a year, only 1TB even in the long term.
+Our metric data will be harder to compress but if we use varint encoding then we can expect less than 8 bytes on average, combined with our appId of 10% or one byte. We've reduced our per second datapoint size to maybe 5-8 bytes at least. And so per second we might expect to write < 25KB no matter how much we blow up. Over one day that's only 2.5GB. Over a year, only 1TB even in the long term or scaled up.
 
-On the batched side, we can use varint and run length encoding to sort all our metric data, since they are sorted by the metric data field. We can drop our time data, since we will just put them into their time range buckets and we won't actually care about their original time. We can use the same appid compression as mentioned above. So we will most likely only need to worry about the node id pattern. Even if we can't compress this 4byte field. It still means we are generally only storing 4 bytes for each data point. Maybe 4 more if we can compress the metric data to 50% (though I personally expect more). This leasve us with a similar storage which scales nicely as the one above. We will get 1TB of storage for the year. After which, we can save all our calculations and throw it away.
+On the batched side, we can use varint and run length encoding to sort all our metric data, since they are sorted by the metric data field. We can drop our time data, since we will just put them into their time range buckets and we won't actually care about their original time. We can use the same appid compression as mentioned above. So we will most likely only need to worry about the node id pattern. Even if we can't compress this 4byte field. It still means we are generally only storing 4 bytes for each data point. if we compress the metric data to 2 bytes on average using a varint delta encoding and a run length encoding we get around 6 bytes on average. This leaves us with a similar storage which scales nicely as the one above. We will get <1TB of storage for the year. After which, we can save all our calculations and throw it away so we can reuse the space for the next year's batch processing.
 
 
 ### Other Considerations
 In the case that all of these are too optimistic, we can always fall back on using Resevoir Sampling. This gives us control over how much data we are storing and analyzing and should often give us reasonable insight into our data. We can trade off accuracy for more speed and space using resevoir sampling. We can use this exclusively, or we can mix it with our described approach above to return a quick and dirty estimated value before our batch processes finishes.
 
+We can also consider cold storage for older data. This can save us on cost by a lot, though it seems we shouldn't need more than 1 or 2 TB per year.
+
+We also could add an aggregation and allocation system for our long term data. Maybe our data science colleagues wish for a deeper analysis on our trends or performance. By implementing configurable hierarchies and groupings, we can allow custom slicing and grouping of our data so we can get a sense of how much each node or cluster might be costing or profiting us.
 
 
 
