@@ -68,7 +68,7 @@ We will be writing data constantly, but we will only have a few hundred users fr
 
 ### Design
 
-![same image as beginning](diagram.jpeg)
+![](diagram.jpeg)
 
 We will hold recent data (for now about a day's worth) in memory. This will allow internal users to quickly and easily debug current problems.
 
