@@ -14,7 +14,7 @@
 - Recent data is more critical (accuracy and latency) -> cache 24 hours data in RAM
 - Very large amount of data to analyze which comes in over a long time period, but at pre-dertimined times -> pre-process most of it so that when final set of data comes in, it can be quickly processed. And save the limited calculations so they can be quickly retrieved in the future. Also compress data stored on disk as much as possible.
 
-![design to show at beginning](diagram.jpeg)
+![design to show at beginning](diagram.jpg)
 
 ### Upfront Asumptions and Decisions
 We are going to have individual machines report their metrics. A machine will have some kind of interface with our metrics systems, which allows it to be aware of the metrics it needs to collect and how and where to report them. 
@@ -68,7 +68,7 @@ We will be writing data constantly, but we will only have a few hundred users fr
 
 ### Design
 
-![](diagram.jpeg)
+![same as beginning](diagram.jpg)
 
 We will hold recent data (for now about a day's worth) in memory. This will allow internal users to quickly and easily debug current problems.
 
