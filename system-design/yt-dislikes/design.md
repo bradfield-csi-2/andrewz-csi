@@ -1,4 +1,4 @@
-## Aggregate Metrics
+## Youtube Dislike Esitmation
 
 ### Requirements
 1. Collect likes and dislikes and estimate total dislikes of page
@@ -11,7 +11,7 @@
 - Since we can't really know the like count with just our user information, we might as well give up on total accuracy from the start
 - Store just the count of likes and dislikes from our users on a video
 - Try to make it as correct and efficient as possible
-- User ratio of user likes to real likes to estimate true dislikes
+- Use ratio of user likes to real likes to estimate true dislikes
 - Since we are only keeping a count, we can probably store just a few bytes for each video id.
 
 
