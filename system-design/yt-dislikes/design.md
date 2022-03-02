@@ -6,7 +6,7 @@
 
 ### Summary
 - Read-heavy, users often view a video without liking or disliking
-- Read average like ratio is about 4% of views?
+- Average like ratio seems around 4% of views anecdotally
 - 25% ratio like to views would be super elite
 - Since we can't really know the like count with just our user information, we might as well give up on total accuracy from the start
 - Store just the count of likes and dislikes from our users on a video
@@ -17,6 +17,31 @@
 
 ### Design
 
+Our system's main function is providing users a reasonable estimate of the total dislikes a YouTube video has. Many users desire this function on the Youtube even though it is no longer supported on the app. So we should first answer how we can do this? 
+
+Well since Youtube provides the total likes a video has, we can use our user base as an indicative sample of how many likes and dislikes a video receives in a sample population. Basically we can compare how many of our users have liked a video to the total likes reported by Youtube and extrapolate the total dislikes given our user dislikes.
+
+The key items we will need to address are the volume of reads and writes we are receiving from our 1 Billion user base and maintaining an accurate count for 30 Youtube videos.
+
+Given these, it seems best to avoid keeping data of which videos each user liked in order to significantly minimize the volume of data we need to read/write. And since it is impossible for our estimate to be 100% accurate anyway, it seems reasonable to give up a little more accuracy for system performance.
+
+Therefore, we will keep only a count of likes and dislikes on each video by our users. (We can optionally store the total like count, but it seems reasonable to offload this to the actual youtube data that our clients are receiving. Actually I'm not clear whether we can parse this data using an extension but it seems reasonable and would save us having to do any unnecessary compute with our own hardware). And will also listen to events in the user's browser to determine when they like/dislike a video (I suppose we can't do this for mobile but oh well). 
+
+Since we are only tracking counts, we would like to introduce some level of idempotency into the system to improve the accuracy of the counts we collect. Therfore, we will program our client side extension to buffer writes and coordinate with our backend to have them accepted. This also allows us to throttle/apply backpressure to updates and limit bad actors.
+
+Essentially, our clients will write updates to the client storage and then request that they be accepted by our backend. Once they are committed to the backend, they can stop trying to send the update. Otherwise they should keep retrying. This gives us some relative insurance that all client likes/dislikes will be correctly counted. (see message queue for further details)
+
+This could be included as part of our database, but it feels better to separate this functionality into a message queue, this way we can separate the responsibility of accepting and replicating messages from our database component. 
+
+As for our datastore, we have a very simple data pattern that is essentially a big hashmap. If we only are careful with using only atomic increments and decrements and tracking which updates have been flushed to disk, we can concurrenly count the likes and dislikes without much issue. We don't have to worry about undos since there is no reason to abort a transaction (no conflicts, taken care of by message queue coordination), and we just need to be careful with redos by not flushing dirty pages until all transactions before the last to write to a page have completed.
+
+In this case, we would ideally use a memory database like Redis. But we since we have so many videos, it will probably be cheaper to store most of it on disk. Therefore, I am not clear if we can use Redis. A data store with some type of buffer page manager would be best. Though I'm not sure if one might exist on the market, the features are simple enough that we can probably create our own implementation if necessary. 
+
+With this system, we could reasonable serve these functions from one geographic location, even over the world, by accepting higher latency, probablility of dropped or requests/messages, and traffic around our main node. However, it seems we could improve all these by splitting our service into multiple nodes to service each individual region.
+
+With our counts only data structure, we can even use Conflict Free Replicated Datatypes to implement a fairly efficient replica system. We would need to add more space so each partition can track it's counts and also have two numbers of increments and decrements, but this seems a good tradeoff to make. We also should be cognizant of users which hop between regions while coordinating their updates to the message queue, but this should be a relatively rare and simple edge case to handle.
+
+
 #### Components
 1. Message Queue - for extension to load updates to so that they can be pulled by server
 2. Notication Mailbox - for users to know their messages have been successfully submitted and will be consumed by the system soon
@@ -25,63 +50,68 @@
 
 
 #### Count Data 
-| VideoId |  YT likes | YT like API time | Num Count Blocks |  Counts Data|
+| VideoId | Num Count Blocks |  Counts Data|
 | ------ | ------ | ------ | ------ | ------ |
-| varchar (20 bytes max) | 32-bit integer (4 bytes) | 64-bit(8-bytes) | 8-bit integer (1 byte) | variable array each element having 4 64-bit integers {user likes | under like undos | user dislikes | user dislike undos} |
+| varchar (15 bytes max) | 8-bit integer (1 byte) | variable array each element having 4 64-bit integers { #likes | #like undos | #dislikes | #dislike undos} |
 
-Each video has a number of likes from youtube API and it's update time from the YT API. It will always be updated with most recent from Youtube. (However, we would actually prefer to push this to the user, because we don't really want to hit the YT API ourselves that often, and we could save a little space). It also has an array which is a CRDT (conflict free replicated data type.) We collect the number of likes and undo likes and dislikes and undo dislikes from each user. We can easily partition these by region and not have to worry about overwriting other regional data because each region handles it's own count and gossips with the other regions. Then the total is simply the sum of all the counts.
+Each video has has an array which is a CRDT (conflict free replicated data type.) We collect the number of likes and undo likes and dislikes and undo dislikes from each user. We can easily partition these by region and not have to worry about overwriting other regional data because each region handles it's own count and gossips with the other regions. Then the total is simply the sum of all the counts.
 
-The total size of this might be 129 bytes for five regions. We can make this 128 for now, since YT id's are only 11 bytes currently anyway.
+The total size of this might be 16 + 32*5 = 176 bytes for five regions. We will round to 200 bytes.
 
 #### Estimates
 1 Billion users
 30 Billion videos
 
-With 30 Billion videos and 128 bytes data each, that's at least 3.84 TB of data we need to store.
+With 30 Billion videos and 200 bytes data each, that's at least 6 TB of data we need to store.
 
-This could fit on a hard drive of 4TB, or we could split it into 2TB SSD (or less if they have larger sizes). We could also fit it into a few TB of RAM on different machines, which is helpful for keeping data in memory.
+This could fit on a hard drive of 6TB, or we could split it into 2TB SSD (or less if they have larger sizes). We could also fit it into a few TB of RAM (or one really huge memory machine) on different machines, which is helpful for keeping data in memory.
 
 With 1 Billion users globally we expect a third of them to be asleep at any one time. But even if we heavy concentration of users in on region, let's say we only have 800 Million users awake at one time.
 
-If they view 10 videos in one hour (a lot), that's 8 Billion views in one hour. On a per second second basis that 8 Billion / 3600 = 2.2 Million views per second.
+If they view 10 videos in one hour (a lot), that's 8 Billion views in one hour. On a per second second basis that 8 Billion / 3600 = 2.2 Million views per second. 
 
-Since we have some control over the extension and are queueing and buffering the updates on the client's end, we have some degree of control over our load. We can implement some type of back pressure to throttle the rate at which extensions send updates if we need to. It could interfere with the latency of receiving an estimate, but we think in general we would be willing to make that trade off.
+It seems the average like/dislike is around 4% of views anectdotally, but let's give 25% just to be safe (an because we can). So we need to process .55 Million updates per second in one region potentially. [https://programminginsider.com/which-is-more-important-youtube-views-or-youtube-likes/] [https://pixelvalleystudio.com/pmf-articles/4-key-youtube-channel-statistics-and-how-to-calculate-them ] [ https://pex.com/blog/analysis-of-user-engagement-videos-worlds-biggest-social-sites/ ]
 
-Anyway, let's keep bumping up the load to 5 Million views per second just to ensure we can handle this high load scenario.
+That means up to 550K writes to the queue and 550K writes to the notification mailbox and 550K writes to the count database per second at high load. With 2.2M reads from the Count DB.
 
-5 Million views per second is quite a lot, but seems more or less manageable with a few machines. However, since we are serving users globally, it would be nice to reduce the latency as much as possible. It would be pretty annoying for users who are very far from the server, have very high latency. And it poses a greater risk to keep all the servers in on region anyway. 
+If we split this into 5 regions, that's 440K reads and 11K writes on each node spread evenly. If we assume one regions is especially large then maybe one region can be 880K reads and 22K writes per second.
 
-Plus, since we are only keeping counts, and estimation is a fairly error prone goal in the first place, it seems like allocating dedicated servers for each region would be an acceptable trade off of latency over consistency. 
+We will assume some things about some basic hardware performance.
+10ms to read 1 MB using a 100MB NIC
+1ms to read 1MB using 1 GB NIC
+//10 GB NIC seems reasonable price -  only a few hundred
+//up to 100 GB NIC more expensive - $2k?
+//also 1/10/100 Gigabit ethernet has proportional throughput
 
-If we assume that we're spreading this over 5 regions and maybe two regions are double two others, then we might expect that one region experiences 1.5 M views per second at high load in our most popular region. So we want to support 1.5 M views in one region, with a proportional amount of writes based off of user likes/dislikes. 
+//Samsung EVO Plus SSD: ~ $200 https://www.samsung.com/us/computing/memory-storage/solid-state-drives/ssd-970-evo-nvme-m-2-1tb-mz-v7e1t0bw/#specs 
+//using 32 cores 
+up to 600K IOPS Random read
+up to 550 IOPS random write
+read up to 3500 MB/s sequentially
+write up to 3300 MB/s sequentially
+5 years or 1200 TBW for 2TB model
 
-It seems the average like/dislike is around 4% of views anectdotally, but let's give 20% just to be safe (an because we can). So we need to process 300K updates per second in one region potentially. [https://programminginsider.com/which-is-more-important-youtube-views-or-youtube-likes/] [https://pixelvalleystudio.com/pmf-articles/4-key-youtube-channel-statistics-and-how-to-calculate-them ] [ https://pex.com/blog/analysis-of-user-engagement-videos-worlds-biggest-social-sites/ ]
+Large CPU with 128 cores and pcie slots - $10K at high end?
+1TB ram $10k
 
-That means up to 300k writes to the queue and 300k writes to the notification mailbox and 300k writes to the count database per second at high load. With 1.5M reads from the Count DB.
+http://highscalability.com/numbers-everyone-should-know
 
 
-### RAM-DB hashmap / Redis
+### Data Store
 ![](YT-Redis-Write-2.jpg)
 
-In order to serve the reads, each region needs to keep a count of all the likes/dislikes on the videos. As mentioned at the beginning of the section, the total size of all 30 billion videos with 128 bytes of id and count data is about 3.84 TB. If we add some extra overhead for the map structure then we can probably round the total size of the structure to around 4 TB. 
+As explained in the begininning, the ideal store for this system would be a hashmap on disk, where we write the data to pages/buckets of our drive. We generally just want to read and update the items in place so if we were to keep it entirely in memory, it would be very performant. But we need some type of durability mechanism to ensure we can recover our state from any failure. 
 
-We can fit this on one large harddrive or a few large SSDs, or a few machines with large TB level RAM. The issue is if can we serve all the potential 1.5M reads from each of these media. If we store on hard drives, which say have 200 IOPS, then we would need over 5K disks to support that many reads anyway. In order to reduce the amount of disk seeks needed we would need to keep the majority of data in memory anyway. SSD's seem like a better bet. If we assume that it has 600K IOPS and hashmap seeks are essentially 1 IO, then we would still need 3 of these disks to support all our IOs. We can reduce this number by having huge RAM to support most seeks in memory. Still we would need 2-3 2TB SSD's to support the size of the mapping, and would have to hope that the majority of accesses are cached in RAM to prevent disk seeks and constantly writing and wearing out the SSD. This would likely be the most cost efficient configuration since SSD's and RAM are relatively cheap compared to CPU's. 
+Simply copying the hasmap structure to disk seems reasonable. It is the most memory efficient while giving us very fast access with as few IOs as possible.
+Furthermore, we don't necessary need to flush every change to disk right away. If we use an AOF/WAL to append the changes we want, we can update the counts in memory and recover from our last saved state in case of failure. 
 
-However, I think the simplest to understand and maintain would likely be a configuration of 4-5 machines with TB RAM that partition the data set between them and have a matching 1-2 TB drive (SSD or HDD) to write an append only file / write ahead log for durability, and also fsync to occasionally. Using this configuration we spend a little for two more machine with big RAM in each instance, but we can use an fsync policy which controls how much writing we will do. This makes maintaining and predicting the lifespan of our drives much easier, and also protect us from bad caching performance. Both configurations seem reasonable to me, but I like that the all-memory configuration has more predictable performance and less concern about unexpected drive failuers (and a global service which is concerned with 2-4 more machines per region seems overly stingy), so we will continue using that one for now. (if the drives are maintained by a cloud service and we don't pay per write or read, then the drive centric configuration may be a better option)
+Of course, with this volume of data and writes, we should still flush/snapshot our data occassionally. So if we organize our hashmap into buffer pages, we would have a pretty efficient method of blocking data into flushable chunks. And we can customize our fsync policy to flush data to disk at convenient times. It also gives us the flexibility to use really large disks and much less RAM to accomodate different types of hardare configurations if we need. As long as we can tune our buffer page manager, we should be able to get away with paying for a lot less RAM then would be needed to fit the entire data set.
 
-If we assume that the reads are spread fairly evenly across the partitioned data, that's about 300-400K request per machine per second at the high load mentioned. Each request is 1KB long (a few bytes video id plus 500-1000 bytes metadata). On a 10 Gigabit/s network, we should be able to handle 1 million of these per second. So it seems network bandwidth won't be the bottle neck. Plus, by adding a second set of machines in each region, we should halve the requests to each machine. (We can replicate the machines in each region and have them both grab updates from the queue without having to wait for each other, once again ignoring consistency between the two. Users may see differences between the two if they keep pulling new view counts, but generally the two will be in sync and users might think that people have undone their dislikes or something to lower the count. At higher counts it doesn't really change the experience that much anyway.)
+If we use an AOF/WAL we can quickly commit and make changes durable while simply updating the item in memory with atomic increments. Then occasional (once or twice a day) flushing of pages to disk would be enough to keep our truncate and manage our log while also saving our state. (We might also consider continuously re-writing the AOF (merging increments to same video) with occasional snapshots).
 
-Assuming the latency for an in memory lookup of the id is under 10 microseconds, then one cpu should be able to process at least 100K of these each second. Since we have 4-5 partitions, we have at least the amount of lookups we would need on one machine in a region. Plus each machine is sure to have multiple cores to increase the factor of throughput. So there should be plent of capacity to serve the reads.
+If we have had a large enough budget for hardware (around $100k for each region/node), then this would probably be the simplest and most performant setup. However, we can get by with much less, relying on SSD and the access pattern of our data. Most likely, the most popular videos and will be memory if we manage our buffer pages properly. And if not, SSD's should have the capacity to serve reads and writes with tens of microseconds. This could wear out our SSD's much faster, but given that the price of equivalent RAM size is around 100x SSD, we can accept the cost of replacing an SSD drive a few times per year.
 
-An in memory data structure is awesome, but we don't want to lose our counts and state if there is a failure. We reduced the risk somewhat by replicating our database, but we would like to save the data on disk in case there is a loss of power or we need to restart our machine.
-
-So we need to have some mechanism for writing the data to disk. And each machine holds about 1 TB of data as mentioned. 
-
-The issue being, that we are able to speed up reads by keeping data in memory, but what but not durable writes, because we might lose our data. If we want all our writes to be durable we will be bound by our disk throughput. With just the update writes we are receiving in one geographic region, we are getting about 300K updates. Spreading it among our partitions, that's about 60-80K updates on each partition each second. This is actually within the capacity of our SSD to keep up with (downside being we may have to replace the SSD often because of all the re-writing). However, we can avoid introducing extra latency and random writes by minimizing how often we flush our data to our drive. We can make our writes durable by utilzing an append only file/write ahead log. This way we can say our write is durable (we will be able to recover from power loss or restart) without actually having to update our memory structure / DB on disk.
-
-We still need to write to the disk occassionally, so we don't have to recover from the beginning of time and also so we can truncate our AOF/WAL.Each append write would only need to be 16-20 bytes long. The videoId, the partition, and the action (increment decrement or like/dislike, we can also have 32 bytes if we want to add yt total likes and query time, or updates from other nodes). At 32 bytes each and 100K per second, that's 3.2 Million bytes per second to write to AOF/WAL, about 3.2 MB which is very reasonable for sequential writes on drives. If we write all pages in memory twice per day in circular order, that means about twelve hours of the AOF/WAL will build up. 3.2MB/sec * 3600 seconds per hour * 12 hours = 138,240 MB = ~140GB. That's a large amount of drive, but should be doable on our large 1-2 TB sized drive. By writing write each part of the In-Memory database twice per day it seems we reduce our writes and improve our latency a lot without paying too much penalty in space and data loss. Recovery could take a while, but as we have at least one replica and both instances should have the capacity to support full load by itself, it should be fine most of the time. And if use SSD, we should be able to recover very quickly (within 10 minutes with ability to read 3,500 MB/sec). 
-
-We also have the option of applying backpressure on the extensions to stop them from sending updates. Or simply allowing queue to build up. 
+We can ask our database server to continually pull new update from the message queue to put into our data store. 
 
 ### Message Queue
 ![](YT-MQ-1.jpg)
