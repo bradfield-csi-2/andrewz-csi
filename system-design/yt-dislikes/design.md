@@ -33,32 +33,32 @@ Essentially, our clients will write updates to the client storage and then reque
 
 This could be included as part of our database, but it feels better to separate this functionality into a message queue, this way we can separate the responsibility of accepting and replicating messages from our database component. 
 
-As for our datastore, we have a very simple data pattern that is essentially a big hashmap. If we only are careful with using only atomic increments and decrements and tracking which updates have been flushed to disk, we can concurrenly count the likes and dislikes without much issue. We don't have to worry about undos since there is no reason to abort a transaction (no conflicts, taken care of by message queue coordination), and we just need to be careful with redos by not flushing dirty pages until all transactions before the last to write to a page have completed.
+As for our datastore, we have a very simple data pattern that is essentially a big hashmap. If we are careful with using only atomic increments and decrements and tracking which updates have been flushed to disk, we can concurrenly count the likes and dislikes without much issue. We don't have to worry about undos since there is no reason to abort a transaction (no conflicts, taken care of by message queue coordination), and we just need to be careful with redos by not flushing dirty pages until all transactions before the last to write to a page have completed.
 
 In this case, we would ideally use a memory database like Redis. But we since we have so many videos, it will probably be cheaper to store most of it on disk. Therefore, I am not clear if we can use Redis. A data store with some type of buffer page manager would be best. Though I'm not sure if one might exist on the market, the features are simple enough that we can probably create our own implementation if necessary. 
 
-With this system, we could reasonable serve these functions from one geographic location, even over the world, by accepting higher latency, probablility of dropped or requests/messages, and traffic around our main node. However, it seems we could improve all these by splitting our service into multiple nodes to service each individual region.
+With this system, we could reasonably serve these functions from one geographic location, even over the world, by accepting higher latency, probablility of dropped or requests/messages, and traffic around our main node. However, it seems we could improve all these by splitting our service into multiple nodes to service each individual region.
 
-With our counts only data structure, we can even use Conflict Free Replicated Datatypes to implement a fairly efficient replica system. We would need to add more space so each partition can track it's counts and also have two numbers of increments and decrements, but this seems a good tradeoff to make. We also should be cognizant of users which hop between regions while coordinating their updates to the message queue, but this should be a relatively rare and simple edge case to handle.
+With our counts only data structure, we can even use Conflict Free Replicated Datatypes to implement a fairly efficient and consistent leaderless system. We would need to add more space so each partition can track it's counts and also have two numbers of increments and decrements, but this seems a good tradeoff to make. We also should be cognizant of users which hop between regions while coordinating their updates to the message queue, but this should be a relatively rare and simple edge case to handle.
 
 
 #### Components
-1. Message Queue - for extension to load updates to so that they can be pulled by server
+1. Message Queue - for extension to load updates to so they can be pulled by server
 2. Notication Mailbox - for users to know their messages have been successfully submitted and will be consumed by the system soon
-3. Redis DB hashmap of video and counts
-4. Authentication/Identity Server
+3. Hashmap DB of video and counts - store total user likes/dislikes
+4. Authentication/Identity Server - make sure we don't collect data from bad actors
 
 
 #### Count Data 
-| VideoId | Num Count Blocks |  Counts Data|
-| ------ | ------ | ------ | ------ | ------ |
-| varchar (15 bytes max) | 8-bit integer (1 byte) | variable array each element having 4 64-bit integers { #likes | #like undos | #dislikes | #dislike undos} |
+| VideoId | Num Count Blocks |  Counts Data| 
+| ------ | ------ | ------ |
+| varchar (15 bytes max) | 8-bit integer (1 byte) | variable array each element having 4 64-bit integers { #likes , #like undos , #dislikes , #dislike undos} |
 
 Each video has has an array which is a CRDT (conflict free replicated data type.) We collect the number of likes and undo likes and dislikes and undo dislikes from each user. We can easily partition these by region and not have to worry about overwriting other regional data because each region handles it's own count and gossips with the other regions. Then the total is simply the sum of all the counts.
 
 The total size of this might be 16 + 32*5 = 176 bytes for five regions. We will round to 200 bytes.
 
-#### Estimates
+#### Estimates and Calculations
 1 Billion users
 30 Billion videos
 
@@ -70,18 +70,19 @@ With 1 Billion users globally we expect a third of them to be asleep at any one 
 
 If they view 10 videos in one hour (a lot), that's 8 Billion views in one hour. On a per second second basis that 8 Billion / 3600 = 2.2 Million views per second. 
 
-It seems the average like/dislike is around 4% of views anectdotally, but let's give 25% just to be safe (an because we can). So we need to process .55 Million updates per second in one region potentially. [https://programminginsider.com/which-is-more-important-youtube-views-or-youtube-likes/] [https://pixelvalleystudio.com/pmf-articles/4-key-youtube-channel-statistics-and-how-to-calculate-them ] [ https://pex.com/blog/analysis-of-user-engagement-videos-worlds-biggest-social-sites/ ]
+It seems the average like/dislike is around 4% of views anectdotally, but let's give 25% just to be safe (an because we can). So we need to process .55 Million updates per second potentially. [https://programminginsider.com/which-is-more-important-youtube-views-or-youtube-likes/] [https://pixelvalleystudio.com/pmf-articles/4-key-youtube-channel-statistics-and-how-to-calculate-them ] [ https://pex.com/blog/analysis-of-user-engagement-videos-worlds-biggest-social-sites/ ]
 
 That means up to 550K writes to the queue and 550K writes to the notification mailbox and 550K writes to the count database per second at high load. With 2.2M reads from the Count DB.
 
-If we split this into 5 regions, that's 440K reads and 11K writes on each node spread evenly. If we assume one regions is especially large then maybe one region can be 880K reads and 22K writes per second.
+If we split this into 5 regions, that's 440K reads and 110K writes on each node spread evenly. If we assume one regions is especially large then maybe one region can be 880K reads and 220K writes per second.
 
-We will assume some things about some basic hardware performance.
+And if we assume that the gossiping is extremely active and each write is propagated to the other nodes, then we might receive the full amount of writes to each node (550K). However, since the writes from other partitions don't need to be written to log or anything, then can essentially count as reads. So we would have on the order of 1M+ reads to each node. 
+
+We will also assume some things about some basic hardware performance.
 10ms to read 1 MB using a 100MB NIC
 1ms to read 1MB using 1 GB NIC
-//10 GB NIC seems reasonable price -  only a few hundred
-//up to 100 GB NIC more expensive - $2k?
-//also 1/10/100 Gigabit ethernet has proportional throughput
+100 usec for 10 GB NIC - reasonable couple hundred dollars in price
+10 usec for 100 GB NIC - expensive $2k ?
 
 //Samsung EVO Plus SSD: ~ $200 https://www.samsung.com/us/computing/memory-storage/solid-state-drives/ssd-970-evo-nvme-m-2-1tb-mz-v7e1t0bw/#specs 
 //using 32 cores 
@@ -91,16 +92,16 @@ read up to 3500 MB/s sequentially
 write up to 3300 MB/s sequentially
 5 years or 1200 TBW for 2TB model
 
-Large CPU with 128 cores and pcie slots - $10K at high end?
-1TB ram $10k
+Large CPU with 128 cores and pcie slots - $10K at high end? (AMD EPYC server)
+1TB ram $10k - seen on newegg (4x DDR4 256GB kit)
 
 http://highscalability.com/numbers-everyone-should-know
 
 
-### Data Store
+### Count Data Store
 ![](YT-Redis-Write-2.jpg)
 
-As explained in the begininning, the ideal store for this system would be a hashmap on disk, where we write the data to pages/buckets of our drive. We generally just want to read and update the items in place so if we were to keep it entirely in memory, it would be very performant. But we need some type of durability mechanism to ensure we can recover our state from any failure. 
+As mentioned in the begininning, the ideal store for this system would be a hashmap on disk, where we write the data to pages/buckets of our drive. We generally just want to read and update the items in place so if we were to keep it entirely in memory, it would be very performant. But we need some type of durability mechanism to ensure we can recover our state from any failure. 
 
 Simply copying the hasmap structure to disk seems reasonable. It is the most memory efficient while giving us very fast access with as few IOs as possible.
 Furthermore, we don't necessary need to flush every change to disk right away. If we use an AOF/WAL to append the changes we want, we can update the counts in memory and recover from our last saved state in case of failure. 
@@ -113,7 +114,7 @@ If we have had a large enough budget for hardware (around $100k for each region/
 
 We can ask our database server to continually pull new update from the message queue to put into our data store. 
 
-### Message Queue
+### Message Queue and Mailbox
 ![](YT-MQ-1.jpg)
 ![](YT-MQ-2.jpg)
 ![](YT-MQ-3.jpg)
@@ -137,6 +138,10 @@ The requester can pull from the mailbox to see if the message it submitted or wa
 If this is done carefully, user's shouldn't have a problem with redundant or lost submissions. Though there is always a chance that they lose their data and submission while it's saved in their machine's memory or they accidently clear their browser data.
 
 If we want to be super careful, we can add some more safeguards so that user's have to keep pulling from the same queue (maybe they move regions mid submission). Or we can replicate mailbox messages which aren't cleared (checked) for a while to other regions. And use some gossip protocol to replicate and coordinate the message availablility between regions.
+
+We also may want to add enough capacity for message queues to keep a day or two's worth of messages in storage. This way, we can have a rotating band of smaller data stores which regularly wake up and consume the messages at different times. This allows us to add replication and recovery, but not have to keep the replicas on all the time.
+
+For the Mailbox we can use Redis as our Data Store Engine as notifications are transient.
 
 ### Conflict-Free Replicated Data Type
 With our nodes being spread across regions we would typically need a way for them to decide who is the leader and direct all the writes to that node. In this case, we have decided to use a leaderless architecture because the volume of writes is very large, the users are spread out very far geographically, and the character of our data is convenient for each node to handle writes conflict free.
