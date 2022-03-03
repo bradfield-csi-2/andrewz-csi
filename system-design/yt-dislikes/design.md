@@ -115,25 +115,38 @@ If we have had a large enough budget for hardware (around $100k for each region/
 We can ask our database server to continually pull new update from the message queue to put into our data store. 
 
 ### Message Queue and Mailbox
-![](YT-MQ-1.jpg)
-![](YT-MQ-2.jpg)
-![](YT-MQ-3.jpg)
-![](YT-MQ-4.jpg)
-![](YT-MQ-5.jpg)
-![](YT-MQ-6.jpg)
-
 
 The purpose of the message queue component is to coordinate updates with the extensions. By assigning space and ids to a user, we are able to control bad actors and to maintain a fairly accurate count of likes/dislikes and actions.
 
 We do this by having the extensions request a message id from the queue when they want to submit an action/update. First, the request is checked by authentication server to identify if the requester is a user on our system. Then it is forwarded to the queue. When the message queue receives the request it assigns a messageId and space in it's buffered transactions to the potential update, and returns it to the requester. It also assigns the requester's user id to the message.
 
+1. Request allocation for new message
+![](YT-MQ-1.jpg)
+
+
 At this point, the queue will buffer the transactions in memory for a short time before committing them to permanent storage where they will become an offical message that needs to be processed by the main db/count system.
+
+2. Allocate and return message ID (**ID should say Pending ID 3)
+![](YT-MQ-2.jpg) 
 
 When the requester receives the message id, it then sends another request to the queue with the id and the action/update to submit. The auth server verifies the requester again and forwards. Then the queue, tries to match the message id to it's buffered transactions. If the messageId exists and matches the user, the action is entered to the buffered transactions.
 
+3. Submit message/action to MQ
+![](YT-MQ-3.jpg)
+
+
 When buffered transactions get committed as committed messages, the queue will put status messages for each transaction in the requester's mailbox(can exist on same machine or queue system). If the requester didn't send the update in time, then the transaction is unsuccessful, else it was committed and was successful.
 
+4. Commit Message and Clear Buffer
+![](YT-MQ-4.jpg)
+
+5. Write Status to Mailbox (can also write unsuccessful)
+![](YT-MQ-5.jpg)
+
 The requester can pull from the mailbox to see if the message it submitted or was planning to submit has been processed succefully or not. This let's the requester know if they should keep retrying to send the update, or if they need to start over and request a new message id from the queue.
+
+6. Client checks mailbox to see if message was committed successfully. (May have to retry if not)
+![](YT-MQ-6.jpg)
 
 If this is done carefully, user's shouldn't have a problem with redundant or lost submissions. Though there is always a chance that they lose their data and submission while it's saved in their machine's memory or they accidently clear their browser data.
 
