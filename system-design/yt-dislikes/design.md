@@ -17,6 +17,8 @@
 
 ### Design
 
+![](YT-Dislike-Over.jpg)
+
 Our system's main function is providing users a reasonable estimate of the total dislikes a YouTube video has. Many users desire this function on the Youtube even though it is no longer supported on the app. So we should first answer how we can do this? 
 
 Well since Youtube provides the total likes a video has, we can use our user base as an indicative sample of how many likes and dislikes a video receives in a sample population. Basically we can compare how many of our users have liked a video to the total likes reported by Youtube and extrapolate the total dislikes given our user dislikes.
@@ -99,7 +101,7 @@ http://highscalability.com/numbers-everyone-should-know
 
 
 ### Count Data Store
-![](YT-Redis-Write-2.jpg)
+![](YT-Count-Store.jpg)
 
 As mentioned in the begininning, the ideal store for this system would be a hashmap on disk, where we write the data to pages/buckets of our drive. We generally just want to read and update the items in place so if we were to keep it entirely in memory, it would be very performant. But we need some type of durability mechanism to ensure we can recover our state from any failure. 
 
