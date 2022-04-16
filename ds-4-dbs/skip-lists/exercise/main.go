@@ -122,7 +122,7 @@ func main() {
 		{newSliceOC(), "Slice"},
 		{newLinkedOC(), "Linked List"},
 		{newLinkedBlockOC(), "Linked Block"},
-		{newBstOC(), "Binary Search Tree"},
+		//{newBstOC(), "Binary Search Tree"},
 		{newRbTreeOC(), "Red Black Tree"},
 		// TODO: Uncomment this when you're ready!
 		{newSkipListOC(), "Skip List"},

@@ -84,5 +84,65 @@ big endian
 
 
 3.2 TCP
+af00bc06441e7368eff2a00281ff5600
+
+source port = af00
+dest port = bc06
+sequence num = 441e 7368
+ack num = eff2 a002
+data offset = 8
+
+4 bonuse byte ordering
+
+
+image          format    dimensions     spaceForPixel     dataStart    contents
+
+image1.bmp     bmp      24x48           24                8a           white box/rect
+
+image2.bmp     bmp      32x64           24                8a           red box/rect
+
+
+
+5.5 floating point
+
+0 1000 0100 01010100000000000000000
+
+positive
+
+exp = 128 + 4 - 127 = 132 - 127 = 5
+
+M = 1 + 1/4 + 1/16 + 1/64 = 1 + .25 + .0625 + .015625
+= 1.328125
+
+= 1.328125 * 2^5 = 42.5
+
+The conversion works by taking advantage of the fact that an int can be converted to an approximate float
+since floats cover much much more than the entire range of ints. but maybe not at the same precision.
+any int can be approximated by a float to 24 significant digits except 0. 
+this meanse we can have an approximation which is either exactly a power of two if the int is already a power of two.
+or between the lower and upper power of 2. with the form 1.xxx to tome power of 2.
+the lower is 1 *2^E and the upper is 1 * 2^E+1. so we can get the lower by shifting 1 the same as the exponent of the casted float
+and the upper by shifting one more. 
+we know we don't have to shift one more if the first shift is already equivalent to the original int.
+
+this works upper only. so in the case of negatives we pretend it's a uint. the next highest power toward the positive side is
+still valid. -7 goes to -4 for example.
+
+6
+snowman
+
+0xE2 0x98 0x83
+
+hello
+
+utf-8
+
+smiley face
+
+echo '0x7' '0x7' '0x7'
+
+snowman = U+2603 = e29883
+
+f09f9880 = U+01f600 = grinning face
 
 

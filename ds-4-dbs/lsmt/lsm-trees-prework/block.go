@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"time"
 	"unsafe"
-  "time"
 	//"compress/gzip"
 )
 
@@ -30,65 +30,62 @@ type kvStruct struct {
 	ValLen    uint16
 }
 
-
 type blockCache struct {
-  num uint8
-  cache [10]cachedBlock
+	num   uint8
+	cache [10]cachedBlock
 }
 
 type cachedBlock struct {
-  start uint32
-  //use maybe uint32 to save space
-  lastUsed time.Time
-  items []Item
+	start uint32
+	//use maybe uint32 to save space
+	lastUsed time.Time
+	items    []Item
 }
-
 
 func newBlockCache() blockCache {
-  return blockCache{}
+	return blockCache{}
 }
 
-func (c *blockCache)Get(start uint32) ([]Item, bool) {
-  for i := uint8(0); i < c.num; i++ {
-    block := c.cache[i]
-    if block.start == start {
-      block.lastUsed = time.Now()
-      return block.items, true
-    }
-  }
-  var items []Item
-  return items, false
+func (c *blockCache) Get(start uint32) ([]Item, bool) {
+	for i := uint8(0); i < c.num; i++ {
+		block := c.cache[i]
+		if block.start == start {
+			block.lastUsed = time.Now()
+			return block.items, true
+		}
+	}
+	var items []Item
+	return items, false
 }
 
-func (c *blockCache)Cache(start uint32, items []Item) {
-  if c.num == 10 {
-    minTime, minBlock := c.cache[0].lastUsed, 0
-    for i, block := range c.cache {
-      if block.lastUsed.Before( minTime) {
-        minTime = block.lastUsed
-        minBlock = i
-      }
-    }
+func (c *blockCache) Cache(start uint32, items []Item) {
+	if c.num == 10 {
+		minTime, minBlock := c.cache[0].lastUsed, 0
+		for i, block := range c.cache {
+			if block.lastUsed.Before(minTime) {
+				minTime = block.lastUsed
+				minBlock = i
+			}
+		}
 
-    c.cache[minBlock].start = start
-    c.cache[minBlock].items = items
-    c.cache[minBlock].lastUsed = time.Now()
-  } else {
-    c.cache[c.num].start = start
-    c.cache[c.num].items = items
-    c.cache[c.num].lastUsed = time.Now()
-    c.num++
-  }
+		c.cache[minBlock].start = start
+		c.cache[minBlock].items = items
+		c.cache[minBlock].lastUsed = time.Now()
+	} else {
+		c.cache[c.num].start = start
+		c.cache[c.num].items = items
+		c.cache[c.num].lastUsed = time.Now()
+		c.num++
+	}
 }
- 
 
 func loadBlockItems(rs io.ReadSeeker, page indexPage) ([]Item, error) {
 	blkHdr := blockHeader{}
 
 	rs.Seek(int64(page.blockStart), io.SeekStart)
 	//compressReader, err := zlib.NewReader(rs)
-  var err error
-  compressReader := rs
+	var err error
+	compressReader := rs
 
 	err = binary.Read(compressReader, binary.LittleEndian, &blkHdr)
 	if err != nil {
@@ -148,7 +145,7 @@ func newBlock(items []Item, byteLen int, filter *aBloomFilter) *block {
 
 		byteOffset = nextOffset
 
-    filter.add(item.Key)
+		filter.add(item.Key)
 	}
 
 	return &block{newBlkHdr, kvStructs, kvBytes}
@@ -158,8 +155,8 @@ func newBlock(items []Item, byteLen int, filter *aBloomFilter) *block {
 func (b *block) Write(w io.Writer) error {
 	//compressWriter, err := zlib.NewWriterLevel(w, zlib.BestCompression)
 	//defer compressWriter.Close()
-  var err error
-  compressWriter := w
+	var err error
+	compressWriter := w
 
 	if err != nil {
 		return err
